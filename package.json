@@ -2,10 +2,10 @@
   "name": "packmatrix-desktop",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "npm@11.1.0",
+  "packageManager": "npm@10.9.8",
   "engines": {
     "node": ">=22.0.0",
-    "npm": ">=11.0.0"
+    "npm": ">=10.0.0"
   },
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "audit:cargo": "cargo audit --manifest-path src-tauri/Cargo.toml",
     "deny:cargo": "cargo-deny --manifest-path src-tauri/Cargo.toml check",
     "audit": "npm run audit:npm && npm run audit:cargo && npm run deny:cargo",
+    "test": "node scripts/verify-e2e-workflows.mjs && node scripts/verify-chaos-resilience.mjs && node scripts/verify-airgap-packet-audit.mjs && node scripts/verify-code-signing.mjs && node scripts/verify-release-rollout.mjs",
     "test:e2e": "playwright test",
     "verify:workflows": "node scripts/verify-e2e-workflows.mjs",
     "verify:chaos": "node scripts/verify-chaos-resilience.mjs",

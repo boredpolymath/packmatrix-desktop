@@ -64,6 +64,21 @@ export function App() {
   const [droppedCsvText, setDroppedCsvText] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
+  // Command-pattern undo/redo history for root application state
+  const {
+    state,
+    executeCommand,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useCommandHistory<AppState>({
+    bags: CURATED_BAG_PRESETS,
+    activeBagId: CURATED_BAG_PRESETS[0].id,
+    cubes: INITIAL_SUB_CONTAINERS,
+    items: INITIAL_INVENTORY_ITEMS,
+  });
+
   // Guard preventing mutations during read-only mode (SDLC 7.5)
   const checkWriteAllowed = useCallback(() => {
     if (isReadOnlyMode) {
@@ -112,21 +127,6 @@ export function App() {
       }
     }
   };
-
-  // Command-pattern undo/redo history for root application state
-  const {
-    state,
-    executeCommand,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-  } = useCommandHistory<AppState>({
-    bags: CURATED_BAG_PRESETS,
-    activeBagId: CURATED_BAG_PRESETS[0].id,
-    cubes: INITIAL_SUB_CONTAINERS,
-    items: INITIAL_INVENTORY_ITEMS,
-  });
 
   const activeBag = useMemo(() => {
     return state.bags.find((b) => b.id === state.activeBagId) || state.bags[0];

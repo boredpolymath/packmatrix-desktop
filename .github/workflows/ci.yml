@@ -38,6 +38,10 @@ jobs:
         working-directory: ./src-tauri
         run: cargo check --frozen
 
+      - name: Run Cargo Comprehensive Test Suite (Invariants, Chaos, Property, Security)
+        working-directory: ./src-tauri
+        run: cargo test --frozen
+
   supply-chain-defense:
     name: Gate 0.2 - Supply Chain Security & Dependency Defense
     runs-on: ubuntu-latest
@@ -105,6 +109,9 @@ jobs:
 
       - name: Run Frontend Linting (oxlint)
         run: npm run lint
+
+      - name: Run SDLC Verification Script Test Suites
+        run: npm test
 
       - name: Run TypeScript Type Check (tsc --noEmit)
         run: npx tsc --noEmit

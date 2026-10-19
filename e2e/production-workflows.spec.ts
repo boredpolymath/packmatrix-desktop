@@ -122,4 +122,77 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
     await expect(page.getByText('Sony A7 IV')).toBeVisible();
   });
 
+  test('Workflow 4 (Edge Case): Formula Injection Attack Neutralization in CSV Import', async ({ page }) => {
+    await page.goto('/');
+    await page.getByText('Trip Documents', { exact: true }).click();
+
+    // Open CSV wizard
+    await page.getByText('CSV Import Wizard').click();
+    await expect(page.getByText('RFC-4180 CSV / TSV Import Wizard')).toBeVisible();
+
+    // Malicious formula injection CSV payload
+    const injectionPayload = `Item Name,Brand,Category,Weight (g),Tags
+=cmd|' /C calc'!A0,ThreatCorp,Tech,500,exploit
+@SUM(1+1),SpreadsheetBomb,Clothing,200,formula
++alert(1),XssCorp,Tech,100,xss
+-15*3,NegativeExec,Misc,150,calc`;
+
+    const textarea = page.locator('textarea').first();
+    await textarea.fill(injectionPayload);
+
+    // Verify 4 items parsed
+    await expect(page.getByText('Mapping Preview (4 items parsed)')).toBeVisible();
+
+    // Verify leading single quotes are injected to neutralize spreadsheet formula evaluation
+    await expect(page.getByText("'=cmd|' /C calc'!A0")).toBeVisible();
+    await expect(page.getByText("'@SUM(1+1)")).toBeVisible();
+    await expect(page.getByText("'+alert(1)")).toBeVisible();
+    await expect(page.getByText("'-15*3")).toBeVisible();
+  });
+
+  test('Workflow 5 (Edge Case): Malformed & Empty CSV Ingestion Strictly Trapped', async ({ page }) => {
+    await page.goto('/');
+    await page.getByText('Trip Documents', { exact: true }).click();
+
+    await page.getByText('CSV Import Wizard').click();
+    const textarea = page.locator('textarea').first();
+
+    // 1. Single row only (header with no data)
+    await textarea.fill('Item Name,Brand,Weight (g)');
+    await expect(page.getByText('CSV must contain a header row and at least one data row.')).toBeVisible();
+
+    // Commit button must be disabled
+    const commitBtn = page.getByRole('button', { name: /Commit/i });
+    await expect(commitBtn).toBeDisabled();
+
+    // 2. Clear to empty
+    await textarea.fill('');
+    await expect(page.getByText('CSV must contain a header row and at least one data row.')).toBeVisible();
+    await expect(commitBtn).toBeDisabled();
+  });
+
+  test('Workflow 6 (Edge Case): Rapid 1-6 Number Key Navigation Invariant', async ({ page }) => {
+    await page.goto('/');
+
+    // Press '2' for Saved Bags
+    await page.keyboard.press('2');
+    await expect(page.getByText('Saved Luggage Shells')).toBeVisible();
+
+    // Press '3' for Packing Cubes
+    await page.keyboard.press('3');
+    await expect(page.getByText('Compression Cubes & Organizers')).toBeVisible();
+
+    // Press '4' for Airline Baggage Rules
+    await page.keyboard.press('4');
+    await expect(page.getByText('Global Airline Baggage Allowances')).toBeVisible();
+
+    // Press '6' for Trip Documents
+    await page.keyboard.press('6');
+    await expect(page.getByText('Trip Documents & Export')).toBeVisible();
+
+    // Press '1' back to My Packing
+    await page.keyboard.press('1');
+    await expect(page.getByText('Packed Total Weight')).toBeVisible();
+  });
+
 });
