@@ -9,7 +9,7 @@ test.describe('PackMatrix Desktop — SDLC 7.4 Cross-Platform E2E Production Wor
 
     // 2. Onboard new luggage: navigate to Saved Bags
     await page.getByText('Saved Bags', { exact: true }).click();
-    await expect(page.getByText('Saved Luggage Shells')).toBeVisible();
+    await expect(page.getByText('Saved Luggage Collection')).toBeVisible();
 
     // Select Peak Design Travel Backpack 45L
     const bagPreset = page.getByText('Peak Design Travel Backpack 45L').first();
@@ -18,14 +18,14 @@ test.describe('PackMatrix Desktop — SDLC 7.4 Cross-Platform E2E Production Wor
 
     // 3. Setup 3 compression cubes: navigate to Packing Cubes
     await page.getByText('Packing Cubes', { exact: true }).click();
-    await expect(page.getByText('Compression Cubes & Organizers')).toBeVisible();
+    await expect(page.getByText('Packing Organizer Cubes')).toBeVisible();
 
     // Verify existing cubes or add cubes
     await expect(page.getByText('Add Packing Cube').first()).toBeVisible();
 
     // 4. Batch import 100 CSV items: navigate to Trip Documents
     await page.getByText('Trip Documents', { exact: true }).click();
-    await expect(page.getByText('Travel Manifest & Archival Export')).toBeVisible();
+    await expect(page.getByText('Trip Documents & Export')).toBeVisible();
 
     // Open CSV Import Wizard
     const csvWizardBtn = page.getByText('CSV Import Wizard');
@@ -60,7 +60,7 @@ test.describe('PackMatrix Desktop — SDLC 7.4 Cross-Platform E2E Production Wor
 
     // 6. Return to Trip Documents and trigger travel manifest export
     await page.getByText('Trip Documents', { exact: true }).click();
-    await expect(page.getByText('Export Travel Manifest')).toBeVisible();
+    await expect(page.getByText('Print Travel Manifest')).toBeVisible();
   });
 
   test('Workflow 2: Unit Toggle 100x Rapid Repetition (Zero numerical drift & layout stability)', async ({ page }) => {
@@ -177,15 +177,15 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
 
     // Press '2' for Saved Bags
     await page.keyboard.press('2');
-    await expect(page.getByText('Saved Luggage Shells')).toBeVisible();
+    await expect(page.getByText('Saved Luggage Collection')).toBeVisible();
 
     // Press '3' for Packing Cubes
     await page.keyboard.press('3');
-    await expect(page.getByText('Compression Cubes & Organizers')).toBeVisible();
+    await expect(page.getByText('Packing Organizer Cubes')).toBeVisible();
 
     // Press '4' for Airline Baggage Rules
     await page.keyboard.press('4');
-    await expect(page.getByText('Global Airline Baggage Allowances')).toBeVisible();
+    await expect(page.getByText('Airline Baggage Rules & Size Limits')).toBeVisible();
 
     // Press '6' for Trip Documents
     await page.keyboard.press('6');
@@ -193,7 +193,7 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
 
     // Press '1' back to My Packing
     await page.keyboard.press('1');
-    await expect(page.getByText('Packed Total Weight')).toBeVisible();
+    await expect(page.getByText('ACTIVE BAG').first()).toBeVisible();
   });
 
 });

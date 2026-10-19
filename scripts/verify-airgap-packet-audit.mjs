@@ -112,7 +112,7 @@ console.log('\n▶ [Test 6] Edge Case: Rejecting Malformed / Negative Packet Met
 let malformedTrapped = false;
 try {
   auditAirGapCompliance({ ...nominalMetrics, totalCapturedPackets: -1 });
-} catch (_e) {
+} catch {
   malformedTrapped = true;
 }
 assert(malformedTrapped, 'Negative packet count must be rejected');
@@ -120,7 +120,7 @@ assert(malformedTrapped, 'Negative packet count must be rejected');
 let nanTrapped = false;
 try {
   auditAirGapCompliance({ ...nominalMetrics, durationSeconds: NaN });
-} catch (_e) {
+} catch {
   nanTrapped = true;
 }
 assert(nanTrapped, 'NaN duration must be rejected');
