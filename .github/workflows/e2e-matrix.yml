@@ -49,7 +49,9 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --engine-strict
+        run: |
+          npm ci --engine-strict
+          npm install -D @playwright/test
 
       - name: Install Playwright Browsers with OS dependencies
         run: npx playwright install --with-deps

@@ -27,6 +27,9 @@ jobs:
       - name: Verify package manager immutability & frozen install
         run: npm ci --engine-strict
 
+      - name: Build frontend bundle
+        run: npm run build
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -124,6 +127,9 @@ jobs:
 
       - name: Run TypeScript Type Check (tsc --noEmit)
         run: npx tsc --noEmit
+
+      - name: Build frontend bundle
+        run: npm run build
 
       - name: Install Linux Build Dependencies
         run: |
