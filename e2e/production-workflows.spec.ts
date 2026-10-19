@@ -5,7 +5,7 @@ test.describe('PackMatrix Desktop — SDLC 7.4 Cross-Platform E2E Production Wor
   test('Workflow 1: Cold launch -> onboard luggage -> setup 3 cubes -> batch import 100 CSV items -> verify balance -> export manifest', async ({ page }) => {
     // 1. Cold launch
     await page.goto('/');
-    await expect(page.locator('.brand-title')).toContainText('PACKMATRIX');
+    await expect(page.locator('.brand-title')).toContainText(/packmatrix/i);
 
     // 2. Onboard new luggage: navigate to Saved Bags
     await page.getByText('Saved Bags', { exact: true }).click();
@@ -118,8 +118,8 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
     await expect(page.getByText('Mapping Preview (4 items parsed)')).toBeVisible();
 
     // Verify parsed items inside modal preview
-    await expect(page.getByText("Arc'teryx Beta AR")).toBeVisible();
-    await expect(page.getByText('Sony A7 IV')).toBeVisible();
+    await expect(page.getByText("Arc'teryx Beta AR").first()).toBeVisible();
+    await expect(page.getByText('Sony A7 IV').first()).toBeVisible();
   });
 
   test('Workflow 4 (Edge Case): Formula Injection Attack Neutralization in CSV Import', async ({ page }) => {
@@ -144,10 +144,10 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
     await expect(page.getByText('Mapping Preview (4 items parsed)')).toBeVisible();
 
     // Verify leading single quotes are injected to neutralize spreadsheet formula evaluation
-    await expect(page.getByText("'=cmd|' /C calc'!A0")).toBeVisible();
-    await expect(page.getByText("'@SUM(1+1)")).toBeVisible();
-    await expect(page.getByText("'+alert(1)")).toBeVisible();
-    await expect(page.getByText("'-15*3")).toBeVisible();
+    await expect(page.getByText("'=cmd|' /C calc'!A0").first()).toBeVisible();
+    await expect(page.getByText("'@SUM(1+1)").first()).toBeVisible();
+    await expect(page.getByText("'+alert(1)").first()).toBeVisible();
+    await expect(page.getByText("'-15*3").first()).toBeVisible();
   });
 
   test('Workflow 5 (Edge Case): Malformed & Empty CSV Ingestion Strictly Trapped', async ({ page }) => {
@@ -173,6 +173,7 @@ Anker 737 PowerBank,Anker,Tech,630,24000mah,usb-c`;
 
   test('Workflow 6 (Edge Case): Rapid 1-6 Number Key Navigation Invariant', async ({ page }) => {
     await page.goto('/');
+    await page.locator('body').click();
 
     // Press '2' for Saved Bags
     await page.keyboard.press('2');

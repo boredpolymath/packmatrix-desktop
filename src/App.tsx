@@ -236,7 +236,7 @@ export function App() {
       }),
     };
     executeCommand(cmd);
-  }, [executeCommand]);
+  }, [checkWriteAllowed, executeCommand]);
 
   const handleUpdateItem = useCallback((updated: InventoryItem) => {
     const original = state.items.find((i) => i.id === updated.id);
