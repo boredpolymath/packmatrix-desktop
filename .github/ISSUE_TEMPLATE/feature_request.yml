@@ -1,0 +1,42 @@
+name: "💡 Feature Request / Airline Rule Update"
+description: "Suggest an idea, airline dimensional update, or enhancement for PackMatrix Desktop."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an idea! Please share your ideas for geometry modeling, luggage physics, packing cube layouts, or airline sizer rules.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem Statement"
+      description: "Is your request related to an unlisted airline, a packaging geometry limitation, or workflow friction? Please describe clearly."
+      placeholder: "I frequently travel on [Airline] and noticed sizer specifications are missing or out of date..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: "Proposed Solution"
+      description: "Describe the solution, geometry calculation, or improvement you would like to see."
+      placeholder: "Add support for airline sizer rules with dimensions (cm/in)..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: official_sources
+    attributes:
+      label: "Official Airline / Manufacturer Sources (if applicable)"
+      description: "Links to official airline baggage policy pages or luggage spec sheets."
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives Considered"
+      description: "Describe any alternative solutions or workarounds you have considered."
+    validations:
+      required: false

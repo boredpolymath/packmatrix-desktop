@@ -1,0 +1,71 @@
+name: "🐛 Bug Report"
+description: "File a reproducible bug report to help improve PackMatrix Desktop."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please ensure you are not reporting a security vulnerability here.
+        For sensitive security issues, use [Private Vulnerability Reporting](https://github.com/boredpolymath/packmatrix-desktop/security/advisories/new) per our [Security Policy](https://github.com/boredpolymath/packmatrix-desktop/blob/main/.github/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: "PackMatrix Version"
+      description: "What version of PackMatrix Desktop are you running? (e.g. 0.1.0 or git commit hash)"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: "Operating System"
+      description: "What OS are you running PackMatrix Desktop on?"
+      options:
+        - "macOS (Apple Silicon - arm64)"
+        - "macOS (Intel - x86_64)"
+        - "Windows 11 / 10 (x86_64)"
+        - "Windows 11 / 10 (ARM64)"
+        - "Linux (Debian / Ubuntu / AppImage)"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Describe the Bug"
+      description: "A clear and concise description of what the bug is."
+      placeholder: "When calculating luggage volume with taper or running an airline sizer audit..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Step-by-step instructions on how to reproduce the behavior."
+      placeholder: |
+        1. Open PackMatrix Desktop
+        2. Enter luggage dimensions (H x W x D)
+        3. Select Airline "Ryanair"
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen instead?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Luggage Details or Relevant Dimensions"
+      description: "Optional details regarding luggage brand, dimensions (cm/in), weight, or test parameters."
+    validations:
+      required: false
