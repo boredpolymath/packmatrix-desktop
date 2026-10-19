@@ -16,22 +16,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Apple Silicon
-          - os: macos-14
-            target-name: macOS Apple Silicon (aarch64)
-            browser: webkit
-          # macOS Intel
-          - os: macos-13
-            target-name: macOS Intel (x86_64)
+          # macOS Apple Silicon (Safari / WebKit)
+          - os: macos-15
+            target-name: macOS Apple Silicon (WebKit)
             browser: webkit
           # Windows
           - os: windows-latest
-            target-name: Windows 10/11 (x64)
+            target-name: Windows 10/11 (Chromium)
             browser: chromium
-          # Linux LTS
+          # Linux LTS (Chromium)
           - os: ubuntu-22.04
-            target-name: Ubuntu 22.04 LTS (glibc)
+            target-name: Ubuntu 22.04 LTS (Chromium)
             browser: chromium
+          # Linux LTS (Firefox / Gecko)
+          - os: ubuntu-22.04
+            target-name: Ubuntu 22.04 LTS (Firefox)
+            browser: firefox
 
     steps:
       - name: Checkout repository
@@ -54,7 +54,13 @@ jobs:
           npm install -D @playwright/test
 
       - name: Install Playwright Browsers with OS dependencies
-        run: npx playwright install --with-deps
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npx playwright install ${{ matrix.browser }} --with-deps
+          else
+            npx playwright install ${{ matrix.browser }}
+          fi
 
       - name: Build frontend bundle
         run: npm run build
