@@ -26,3 +26,9 @@ zeroize = { version = "1.9.1", features = ["derive"] }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.dev]
+overflow-checks = true
+
+[profile.release]
+overflow-checks = true

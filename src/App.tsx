@@ -1,88 +1,344 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Luggage,
   Menu,
   Search,
-  Layers,
-  Sparkles,
-  Plane,
   Briefcase,
   Box,
   FileText,
   CheckCircle2,
-  AlertTriangle,
-  Scale,
-  Laptop,
-  Shirt,
-  Headphones,
-  Footprints,
-  Plus,
-  Printer,
+  Plane,
   ChevronDown,
-  Clock,
-  ShieldCheck,
-  Check
 } from 'lucide-react';
+import type {
+  LuggageShell,
+  SubContainer,
+  InventoryItem,
+  UnitSystem,
+  ReadinessState,
+} from './types';
+import {
+  CURATED_BAG_PRESETS,
+  INITIAL_SUB_CONTAINERS,
+  INITIAL_INVENTORY_ITEMS,
+  AIRLINE_RULES_DATABASE,
+} from './utils/data';
+import { useCommandHistory, type Command } from './hooks/useCommandHistory';
+import { MyPackingView } from './components/views/MyPackingView';
+import { SavedBagsView } from './components/views/SavedBagsView';
+import { PackingCubesView } from './components/views/PackingCubesView';
+import { GearInventoryView } from './components/views/GearInventoryView';
+import { AirlineRulesView } from './components/views/AirlineRulesView';
+import { TripDocumentsView } from './components/views/TripDocumentsView';
 
-interface GearItem {
-  id: string;
-  name: string;
-  location: string;
-  weightG: number;
-  category: 'Tech' | 'Clothing' | 'Toiletries' | 'Footwear';
-  packed: boolean;
+interface AppState {
+  bags: LuggageShell[];
+  activeBagId: string;
+  cubes: SubContainer[];
+  items: InventoryItem[];
 }
 
-const INITIAL_GEAR: GearItem[] = [
-  // Electronics & Work
-  { id: '1', name: 'MacBook Pro 16" M3 ...', location: 'Laptop compartment', weightG: 2140, category: 'Tech', packed: true },
-  { id: '2', name: 'Anker GaN Charger (1...', location: 'Tech Pouch', weightG: 320, category: 'Tech', packed: true },
-  { id: '3', name: 'Sony WH-1000XM5', location: 'Top bay hardcase', weightG: 250, category: 'Tech', packed: true },
-  { id: '4', name: 'Roost V3 Laptop Stand', location: 'Side pocket', weightG: 170, category: 'Tech', packed: true },
-  
-  // Clothing
-  { id: '5', name: 'Outlier Dungarees (x2)', location: 'Pants, rolled', weightG: 920, category: 'Clothing', packed: true },
-  { id: '6', name: 'Merino T-Shirts (4-Pa...', location: 'Compression packed', weightG: 680, category: 'Clothing', packed: true },
-  { id: '7', name: 'Arc\'teryx Atom LT Hoo...', location: 'Midlayer fleece', weightG: 375, category: 'Clothing', packed: true },
-
-  // Toiletries & Footwear
-  { id: '8', name: 'Matador Bottles 100m...', location: 'Shampoo & wash', weightG: 310, category: 'Toiletries', packed: true },
-  { id: '9', name: 'Trail Running Shoes (U...', location: 'Bottom base floor', weightG: 680, category: 'Footwear', packed: true },
-  { id: '10', name: 'Oral-B iO Toothbrush ...', location: 'Travel case', weightG: 190, category: 'Toiletries', packed: true }
-];
-
 export function App() {
-  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric');
-  const [activeNav, setActiveNav] = useState('My Packing');
-  const [activeViewTab, setActiveViewTab] = useState<'Top View' | 'Side Profile' | 'Balance'>('Top View');
-  const [activeCategoryFilter, setActiveCategoryFilter] = useState('All');
-  const [items, setItems] = useState<GearItem[]>(INITIAL_GEAR);
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
+  const [activeNav, setActiveNav] = useState<
+    'My Packing' | 'Saved Bags' | 'Packing Cubes' | 'Airline Baggage Rules' | 'Gear Checklist' | 'Trip Documents'
+  >('My Packing');
+  const [globalSearch, setGlobalSearch] = useState('');
 
-  const toggleItemPacked = (id: string) => {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, packed: !item.packed } : item))
-    );
-  };
-
-  const filteredItems = items.filter((item) => {
-    if (activeCategoryFilter === 'All') return true;
-    if (activeCategoryFilter === 'Clothing') return item.category === 'Clothing';
-    if (activeCategoryFilter === 'Tech') return item.category === 'Tech';
-    if (activeCategoryFilter === 'Toiletries') return item.category === 'Toiletries';
-    if (activeCategoryFilter === 'Footwear') return item.category === 'Footwear';
-    return true;
+  // Command-pattern undo/redo history for root application state
+  const {
+    state,
+    executeCommand,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useCommandHistory<AppState>({
+    bags: CURATED_BAG_PRESETS,
+    activeBagId: CURATED_BAG_PRESETS[0].id,
+    cubes: INITIAL_SUB_CONTAINERS,
+    items: INITIAL_INVENTORY_ITEMS,
   });
 
-  const electronicsItems = filteredItems.filter((i) => i.category === 'Tech');
-  const clothingItems = filteredItems.filter((i) => i.category === 'Clothing');
-  const toiletryAndFootwearItems = filteredItems.filter((i) => i.category === 'Toiletries' || i.category === 'Footwear');
+  const activeBag = useMemo(() => {
+    return state.bags.find((b) => b.id === state.activeBagId) || state.bags[0];
+  }, [state.bags, state.activeBagId]);
 
-  const formatWeight = (grams: number) => {
-    if (unitSystem === 'metric') {
-      return `${grams.toLocaleString()} g`;
-    }
-    return `${(grams * 0.035274).toFixed(1)} oz`;
-  };
+  // Active airline rule
+  const activeAirlineRule = AIRLINE_RULES_DATABASE[0];
+
+  // Keyboard navigation shortcuts (SDLC Section 3.7)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+Z / Ctrl+Z: Undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      // Cmd+Shift+Z / Ctrl+Shift+Z: Redo
+      else if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        redo();
+      }
+      // Cmd+K or /: Search focus
+      else if (((e.metaKey || e.ctrlKey) && e.key === 'k') || (e.key === '/' && (e.target as HTMLElement).tagName !== 'INPUT')) {
+        e.preventDefault();
+        const searchInput = document.getElementById('global-search-input');
+        searchInput?.focus();
+      }
+      // 1 to 6 numbers for fast view navigation when not typing
+      else if (!e.metaKey && !e.ctrlKey && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+        if (e.key === '1') setActiveNav('My Packing');
+        if (e.key === '2') setActiveNav('Saved Bags');
+        if (e.key === '3') setActiveNav('Packing Cubes');
+        if (e.key === '4') setActiveNav('Airline Baggage Rules');
+        if (e.key === '5') setActiveNav('Gear Checklist');
+        if (e.key === '6') setActiveNav('Trip Documents');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo]);
+
+  // Command handlers
+  const handleTogglePacked = useCallback((id: string) => {
+    const cmd: Command<AppState> = {
+      description: 'Toggle item packed state',
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          i.id === id
+            ? { ...i, readiness_state: i.readiness_state === 'Packed' ? 'In Closet' : 'Packed', packed: i.readiness_state !== 'Packed' }
+            : i
+        ),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          i.id === id
+            ? { ...i, readiness_state: i.readiness_state === 'Packed' ? 'In Closet' : 'Packed', packed: i.readiness_state !== 'Packed' }
+            : i
+        ),
+      }),
+    };
+    executeCommand(cmd);
+  }, [executeCommand]);
+
+  const handleToggleExpandBag = useCallback(() => {
+    const currentExpanded = activeBag.is_expanded;
+    const cmd: Command<AppState> = {
+      description: 'Toggle luggage expansion gusset',
+      apply: (curr) => ({
+        ...curr,
+        bags: curr.bags.map((b) =>
+          b.id === curr.activeBagId ? { ...b, is_expanded: !currentExpanded } : b
+        ),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        bags: curr.bags.map((b) =>
+          b.id === curr.activeBagId ? { ...b, is_expanded: currentExpanded } : b
+        ),
+      }),
+    };
+    executeCommand(cmd);
+  }, [activeBag.is_expanded, executeCommand]);
+
+  const handleSelectActiveBag = useCallback((bagId: string) => {
+    const previousId = state.activeBagId;
+    const cmd: Command<AppState> = {
+      description: `Switch active luggage to ${bagId}`,
+      apply: (curr) => ({ ...curr, activeBagId: bagId }),
+      rollback: (curr) => ({ ...curr, activeBagId: previousId }),
+    };
+    executeCommand(cmd);
+  }, [state.activeBagId, executeCommand]);
+
+  const handleAddBag = useCallback((newBag: LuggageShell) => {
+    const cmd: Command<AppState> = {
+      description: `Add custom bag: ${newBag.name}`,
+      apply: (curr) => ({ ...curr, bags: [...curr.bags, newBag], activeBagId: newBag.id }),
+      rollback: (curr) => ({
+        ...curr,
+        bags: curr.bags.filter((b) => b.id !== newBag.id),
+        activeBagId: curr.activeBagId === newBag.id ? curr.bags[0]?.id || '' : curr.activeBagId,
+      }),
+    };
+    executeCommand(cmd);
+  }, [executeCommand]);
+
+  const handleUpdateItem = useCallback((updated: InventoryItem) => {
+    const original = state.items.find((i) => i.id === updated.id);
+    if (!original) return;
+
+    const cmd: Command<AppState> = {
+      description: `Edit item: ${updated.name}`,
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) => (i.id === updated.id ? updated : i)),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) => (i.id === updated.id ? original : i)),
+      }),
+    };
+    executeCommand(cmd);
+  }, [state.items, executeCommand]);
+
+  const handleAddItem = useCallback((newItem: InventoryItem) => {
+    const cmd: Command<AppState> = {
+      description: `Add item: ${newItem.name}`,
+      apply: (curr) => ({ ...curr, items: [...curr.items, newItem] }),
+      rollback: (curr) => ({ ...curr, items: curr.items.filter((i) => i.id !== newItem.id) }),
+    };
+    executeCommand(cmd);
+  }, [executeCommand]);
+
+  const handleBatchUpdateState = useCallback((itemIds: string[], nextState: ReadinessState) => {
+    const previousMap = new Map(state.items.map((i) => [i.id, i.readiness_state]));
+    const cmd: Command<AppState> = {
+      description: `Batch change state to ${nextState} (${itemIds.length} items)`,
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          itemIds.includes(i.id)
+            ? { ...i, readiness_state: nextState, packed: nextState === 'Packed' }
+            : i
+        ),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          itemIds.includes(i.id)
+            ? {
+                ...i,
+                readiness_state: previousMap.get(i.id) || i.readiness_state,
+                packed: (previousMap.get(i.id) || i.readiness_state) === 'Packed',
+              }
+            : i
+        ),
+      }),
+    };
+    executeCommand(cmd);
+  }, [state.items, executeCommand]);
+
+  const handleBatchAssignCube = useCallback((itemIds: string[], cubeId?: string) => {
+    const previousMap = new Map(state.items.map((i) => [i.id, i.sub_container_id]));
+    const cmd: Command<AppState> = {
+      description: `Batch assign cube (${itemIds.length} items)`,
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          itemIds.includes(i.id) ? { ...i, sub_container_id: cubeId } : i
+        ),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        items: curr.items.map((i) =>
+          itemIds.includes(i.id) ? { ...i, sub_container_id: previousMap.get(i.id) } : i
+        ),
+      }),
+    };
+    executeCommand(cmd);
+  }, [state.items, executeCommand]);
+
+  const handleBatchDelete = useCallback((itemIds: string[]) => {
+    const deletedItems = state.items.filter((i) => itemIds.includes(i.id));
+    const cmd: Command<AppState> = {
+      description: `Delete ${itemIds.length} items`,
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.filter((i) => !itemIds.includes(i.id)),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        items: [...curr.items, ...deletedItems],
+      }),
+    };
+    executeCommand(cmd);
+  }, [state.items, executeCommand]);
+
+  const handleUpdateCube = useCallback((updated: SubContainer) => {
+    const original = state.cubes.find((c) => c.id === updated.id);
+    if (!original) return;
+
+    const cmd: Command<AppState> = {
+      description: `Update cube: ${updated.name}`,
+      apply: (curr) => ({
+        ...curr,
+        cubes: curr.cubes.map((c) => (c.id === updated.id ? updated : c)),
+      }),
+      rollback: (curr) => ({
+        ...curr,
+        cubes: curr.cubes.map((c) => (c.id === updated.id ? original : c)),
+      }),
+    };
+    executeCommand(cmd);
+  }, [state.cubes, executeCommand]);
+
+  const handleAddCube = useCallback((newCube: SubContainer) => {
+    const cmd: Command<AppState> = {
+      description: `Add cube: ${newCube.name}`,
+      apply: (curr) => ({ ...curr, cubes: [...curr.cubes, newCube] }),
+      rollback: (curr) => ({ ...curr, cubes: curr.cubes.filter((c) => c.id !== newCube.id) }),
+    };
+    executeCommand(cmd);
+  }, [executeCommand]);
+
+  const handleImportItems = useCallback((newItems: InventoryItem[]) => {
+    const cmd: Command<AppState> = {
+      description: `Import ${newItems.length} items from CSV`,
+      apply: (curr) => ({ ...curr, items: [...curr.items, ...newItems] }),
+      rollback: (curr) => {
+        const importedIds = new Set(newItems.map((n) => n.id));
+        return {
+          ...curr,
+          items: curr.items.filter((i) => !importedIds.has(i.id)),
+        };
+      },
+    };
+    executeCommand(cmd);
+  }, [executeCommand]);
+
+  const handleRestoreBackup = useCallback((backup: { luggage: LuggageShell[]; inventory: InventoryItem[] }) => {
+    const prev = { ...state };
+    const cmd: Command<AppState> = {
+      description: 'Restore full JSON vault backup',
+      apply: (curr) => ({
+        ...curr,
+        bags: backup.luggage.length > 0 ? backup.luggage : curr.bags,
+        activeBagId: backup.luggage[0]?.id || curr.activeBagId,
+        items: backup.inventory.length > 0 ? backup.inventory : curr.items,
+      }),
+      rollback: () => prev,
+    };
+    executeCommand(cmd);
+  }, [state, executeCommand]);
+
+  // Auto-pack gravity distribution heuristic
+  const handleAutoPack = useCallback(() => {
+    const cmd: Command<AppState> = {
+      description: 'Run 3D gravity center distribution auto-packer',
+      apply: (curr) => ({
+        ...curr,
+        items: curr.items.map((item) => {
+          if (item.category === 'Tech') {
+            return { ...item, pos_x: 0, pos_y: 2.0, pos_z: 20.0 }; // Spine flush
+          }
+          if (item.category === 'Clothing') {
+            return { ...item, pos_x: 0, pos_y: 8.0, pos_z: 22.0 }; // Mid layer
+          }
+          if (item.category === 'Toiletries') {
+            return { ...item, pos_x: 0, pos_y: 11.0, pos_z: 42.0 }; // Top quick reach
+          }
+          return item;
+        }),
+      }),
+      rollback: () => state,
+    };
+    executeCommand(cmd);
+  }, [state, executeCommand]);
 
   return (
     <>
@@ -104,7 +360,14 @@ export function App() {
         <div className="header-center">
           <div className="search-bar">
             <Search size={15} color="#94a3b8" />
-            <input type="text" placeholder="Search gear, bags, rules..." aria-label="Search gear, bags, rules" />
+            <input
+              id="global-search-input"
+              type="text"
+              placeholder="Search gear, bags, rules (Cmd+K or /)..."
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              aria-label="Search gear, bags, rules"
+            />
             <span className="kbd-shortcut">⌘K</span>
           </div>
         </div>
@@ -114,12 +377,18 @@ export function App() {
             <span
               className={`unit-pill ${unitSystem === 'metric' ? 'active' : ''}`}
               onClick={() => setUnitSystem('metric')}
+              role="button"
+              tabIndex={0}
+              aria-label="Switch to Metric Units"
             >
               CM / KG
             </span>
             <span
               className={`unit-pill ${unitSystem === 'imperial' ? 'active' : ''}`}
               onClick={() => setUnitSystem('imperial')}
+              role="button"
+              tabIndex={0}
+              aria-label="Switch to Imperial Units"
             >
               IN / LBS
             </span>
@@ -150,31 +419,47 @@ export function App() {
             <div
               className={`nav-item ${activeNav === 'My Packing' ? 'active' : ''}`}
               onClick={() => setActiveNav('My Packing')}
+              role="button"
+              tabIndex={0}
             >
               <Briefcase size={16} />
               <span>My Packing</span>
-              <span className="nav-badge">18</span>
+              <span className="nav-badge">
+                {state.items.filter((i) => i.readiness_state === 'Packed').length}
+              </span>
             </div>
 
             <div
               className={`nav-item ${activeNav === 'Saved Bags' ? 'active' : ''}`}
               onClick={() => setActiveNav('Saved Bags')}
+              role="button"
+              tabIndex={0}
             >
               <Luggage size={16} />
               <span>Saved Bags</span>
+              <span className="nav-badge" style={{ background: 'var(--surface-dim)', color: 'var(--text-secondary)' }}>
+                {state.bags.length}
+              </span>
             </div>
 
             <div
               className={`nav-item ${activeNav === 'Packing Cubes' ? 'active' : ''}`}
               onClick={() => setActiveNav('Packing Cubes')}
+              role="button"
+              tabIndex={0}
             >
               <Box size={16} />
               <span>Packing Cubes</span>
+              <span className="nav-badge" style={{ background: 'var(--surface-dim)', color: 'var(--text-secondary)' }}>
+                {state.cubes.length}
+              </span>
             </div>
 
             <div
               className={`nav-item ${activeNav === 'Airline Baggage Rules' ? 'active' : ''}`}
               onClick={() => setActiveNav('Airline Baggage Rules')}
+              role="button"
+              tabIndex={0}
             >
               <FileText size={16} />
               <span>Airline Baggage Rules</span>
@@ -183,14 +468,19 @@ export function App() {
             <div
               className={`nav-item ${activeNav === 'Gear Checklist' ? 'active' : ''}`}
               onClick={() => setActiveNav('Gear Checklist')}
+              role="button"
+              tabIndex={0}
             >
               <CheckCircle2 size={16} />
               <span>Gear Checklist</span>
+              <span className="nav-badge">{state.items.length}</span>
             </div>
 
             <div
               className={`nav-item ${activeNav === 'Trip Documents' ? 'active' : ''}`}
               onClick={() => setActiveNav('Trip Documents')}
+              role="button"
+              tabIndex={0}
             >
               <FileText size={16} />
               <span>Trip Documents</span>
@@ -199,395 +489,78 @@ export function App() {
         </aside>
 
         {/* Dynamic Canvas Area */}
-        <main className="main-content">
-          {/* Active Bag Telemetry Banner */}
-          <section className="active-bag-card">
-            <div className="bag-primary-info">
-              <div className="bag-avatar-icon">
-                <Luggage size={22} />
-              </div>
-              <div className="bag-detail-column">
-                <span className="active-bag-pill">Active Bag</span>
-                <div className="bag-title-row">
-                  <h2 className="bag-name">Peak Design Travel Backpack 45L</h2>
-                  <span className="bag-dimension-tag">
-                    {unitSystem === 'metric' ? '53.5 × 33.0 × 24.1 cm' : '21.1 × 13.0 × 9.5 in'}
-                  </span>
-                  <span className="depth-alert-badge">
-                    {unitSystem === 'metric' ? 'Depth Alert: -1.1 cm' : 'Depth Alert: -0.4 in'}
-                  </span>
-                </div>
-              </div>
-            </div>
+        <main className="main-content" style={{ overflowY: 'auto' }}>
+          {activeNav === 'My Packing' && (
+            <MyPackingView
+              activeBag={activeBag}
+              cubes={state.cubes}
+              items={state.items}
+              airlineRule={activeAirlineRule}
+              unitSystem={unitSystem}
+              onTogglePacked={handleTogglePacked}
+              onToggleExpand={handleToggleExpandBag}
+              onAutoPack={handleAutoPack}
+              onAddItem={handleAddItem}
+            />
+          )}
 
-            <div className="bag-metrics-group">
-              {/* Volume Gauge */}
-              <div className="telemetry-chip">
-                <div className="telemetry-chip-icon">
-                  <Box size={18} />
-                </div>
-                <div className="telemetry-data">
-                  <div className="telemetry-header">
-                    <span className="telemetry-label">Volume</span>
-                    <span className="telemetry-badge-blue">91%</span>
-                  </div>
-                  <span className="telemetry-value">38.4 / 42 L</span>
-                </div>
-              </div>
+          {activeNav === 'Saved Bags' && (
+            <SavedBagsView
+              bags={state.bags}
+              activeBagId={state.activeBagId}
+              onSelectActiveBag={handleSelectActiveBag}
+              onAddBag={handleAddBag}
+              unitSystem={unitSystem}
+            />
+          )}
 
-              {/* Weight Gauge */}
-              <div className="telemetry-chip weight">
-                <div className="telemetry-chip-icon">
-                  <Scale size={18} />
-                </div>
-                <div className="telemetry-data">
-                  <div className="telemetry-header">
-                    <span className="telemetry-label">Weight</span>
-                    <span className="telemetry-badge-green">Under Limit</span>
-                  </div>
-                  <span className="telemetry-value">
-                    {unitSystem === 'metric' ? '8.42 / 10.0 kg' : '18.56 / 22.0 lbs'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </section>
+          {activeNav === 'Packing Cubes' && (
+            <PackingCubesView
+              cubes={state.cubes}
+              items={state.items}
+              activeBag={activeBag}
+              onUpdateCube={handleUpdateCube}
+              onAddCube={handleAddCube}
+              unitSystem={unitSystem}
+            />
+          )}
 
-          {/* Dual-Hero Workspace Grid */}
-          <div className="workspace-grid">
-            {/* Left Hero: Map & Flight Envelope */}
-            <div className="map-column">
-              {/* Airline Envelope Compliance */}
-              <div className="airline-envelope-card">
-                <div className="envelope-header-row">
-                  <div className="carrier-title-group">
-                    <ShieldCheck size={18} color="#059669" />
-                    <span className="carrier-name">Lufthansa Cabin Envelope</span>
-                    <span className="status-badge-compliant">Compliant</span>
-                  </div>
-                </div>
+          {activeNav === 'Gear Checklist' && (
+            <GearInventoryView
+              items={state.items}
+              cubes={state.cubes}
+              unitSystem={unitSystem}
+              onUpdateItem={handleUpdateItem}
+              onBatchUpdateState={handleBatchUpdateState}
+              onBatchAssignCube={handleBatchAssignCube}
+              onBatchDelete={handleBatchDelete}
+              onAddItem={handleAddItem}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              onUndo={undo}
+              onRedo={redo}
+            />
+          )}
 
-                <div className="envelope-metrics-row">
-                  <div className="envelope-spec-pill">
-                    <Luggage size={13} />
-                    <span>{unitSystem === 'metric' ? '55 × 40 × 23 cm' : '21.6 × 15.7 × 9.0 in'}</span>
-                  </div>
-                  <div className="envelope-spec-pill">
-                    <Scale size={13} />
-                    <span>{unitSystem === 'metric' ? '8.0 kg' : '17.6 lbs'}</span>
-                  </div>
-                  <div className="envelope-spec-pill personal">
-                    <Briefcase size={13} />
-                    <span>Personal: {unitSystem === 'metric' ? '40 × 30 × 10 cm' : '15.7 × 11.8 × 3.9 in'}</span>
-                  </div>
-                </div>
+          {activeNav === 'Airline Baggage Rules' && (
+            <AirlineRulesView
+              rules={AIRLINE_RULES_DATABASE}
+              activeBag={activeBag}
+              items={state.items}
+              unitSystem={unitSystem}
+            />
+          )}
 
-                <div className="verification-meta-row">
-                  <Clock size={12} />
-                  <span>FRA → JFK · Verified 12m ago</span>
-                </div>
-              </div>
-
-              {/* Overhead Visual Map Card */}
-              <div className="visual-map-card">
-                <div className="map-card-header">
-                  <div className="icon-cube">
-                    <Layers size={18} />
-                  </div>
-                  <div>
-                    <h3 className="map-title">Overhead Visual Map</h3>
-                    <p className="map-subtitle">Real-time packing volumetric distribution and weight center</p>
-                  </div>
-                </div>
-
-                <div className="map-view-controls">
-                  <div className="view-segmented-group">
-                    {(['Top View', 'Side Profile', 'Balance'] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        className={`view-segment-btn ${activeViewTab === tab ? 'active' : ''}`}
-                        onClick={() => setActiveViewTab(tab)}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-
-                  <button className="auto-pack-btn" title="Run geometric gravity distribution solver">
-                    <Sparkles size={13} />
-                    <span>Auto-Pack</span>
-                  </button>
-                </div>
-
-                {/* Recessed Backpack Clamshell Blueprint */}
-                <div className="blueprint-frame">
-                  {/* Laptop Sleeve */}
-                  <div className="compartment-laptop">
-                    <div className="icon-box">
-                      <Laptop size={16} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f2b5c' }}>
-                        16" Laptop &amp; Tablet Sleeve
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>
-                        MacBook Pro 16" (2.14 kg) · Roost V3 Stand
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Split Row: Liquids & Sunglasses */}
-                  <div className="compartment-row-split">
-                    <div className="compartment-liquids">
-                      <div className="liquids-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#92400e' }}>
-                          <AlertTriangle size={13} color="#d97706" />
-                          <span>TSA Liquids ...</span>
-                        </div>
-                        <span className="badge-amber-micro">3-1-1 Approved</span>
-                      </div>
-                      <div style={{ fontSize: '10.5px', color: '#78350f' }}>
-                        Matador bottles (3x 100ml shampoo), ...
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#92400e', fontWeight: 600, marginTop: '2px' }}>
-                        <span>Top quick-reach cavity</span>
-                        <span>780 g</span>
-                      </div>
-                    </div>
-
-                    <div className="compartment-sunglasses">
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '11.5px', fontWeight: 700, color: '#854d0e' }}>Sunglas...</span>
-                        <span className="badge-amber-micro" style={{ background: '#fef08a' }}>Top Lid</span>
-                      </div>
-                      <div style={{ fontSize: '10.5px', color: '#713f12' }}>
-                        Hardcase polarized shad...
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#854d0e', fontWeight: 600, marginTop: '2px' }}>
-                        <span>Hardcase bay</span>
-                        <span>110 g</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Clothing Compression Cube L */}
-                  <div className="compartment-clothing-cube">
-                    <div className="clothing-cube-header">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#0284c7' }}></span>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#0369a1' }}>Clothing Compression Cube L</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <span className="badge-sky-micro">1.42 kg · 4.2 L</span>
-                        <span className="badge-sky-micro" style={{ background: '#bae6fd' }}>Center Layer</span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#0284c7' }}>
-                      6x Merino Shirts, 2x Chinos (Outlier Dungarees), Arc'teryx Atom L...
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#0369a1', fontWeight: 600, marginTop: '2px' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        ✦ 88% compression ratio
-                      </span>
-                      <span>Depth: 11.2 cm</span>
-                    </div>
-                  </div>
-
-                  {/* Electronics & Tech Bay */}
-                  <div className="compartment-tech-bay">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#16a34a' }}></span>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>Electronics &amp; Tech Bay</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <span className="badge-green-micro">1.85 kg · Dense</span>
-                        <span className="badge-green-micro" style={{ background: '#bbf7d0' }}>Heavy Base</span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#15803d' }}>
-                      140W GaN Fast Charger, 24k mAh Powerbank, Sony WH-1000X...
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#166534', fontWeight: 600, marginTop: '2px' }}>
-                      <span>Spine-centered low center-of-gravity</span>
-                      <span>Load Balance: Optimal</span>
-                    </div>
-                  </div>
-
-                  {/* Shoes & Free Space Buffer */}
-                  <div className="compartment-shoes-buffer-row">
-                    <div className="compartment-shoes">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 700, color: '#334155' }}>
-                        <Footprints size={14} color="#64748b" />
-                        <span>Trail Running Shoes (US 11)</span>
-                        <span style={{ fontSize: '10.5px', color: '#94a3b8', fontWeight: 500 }}>680 g</span>
-                      </div>
-                      <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                        In shoe bags along bottom curved floor
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
-                        <span>Bottom base perimeter</span>
-                        <span style={{ background: '#e2e8f0', padding: '1px 5px', borderRadius: '4px', color: '#475569' }}>Bottom Floor</span>
-                      </div>
-                    </div>
-
-                    <div className="compartment-free-buffer">
-                      <span className="buffer-title">FREE SPACE BUFFER</span>
-                      <span className="buffer-liters">3.6 L Available</span>
-                      <span className="buffer-caption">Souvenirs / Jacket</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Spine Flush Ergonomics Banner */}
-                <div className="spine-flush-banner">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', fontWeight: 600, color: '#166534' }}>
-                    <CheckCircle2 size={15} color="#059669" />
-                    <span>Spine Flush Ergonomics: Heavy gear aligned a...</span>
-                  </div>
-                  <span className="status-badge-compliant" style={{ background: '#dcfce7', color: '#15803d', borderColor: '#86efac' }}>
-                    100% Balanced
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Right Hero: Packed Items Checklist */}
-            <div className="checklist-card">
-              <div className="checklist-header-row">
-                <div className="checklist-title-group">
-                  <h3 className="checklist-title">Packed Items Checklist</h3>
-                  <span className="checklist-subtitle">18 items packed · 6.37 kg gear total</span>
-                </div>
-                <div className="checklist-actions-group">
-                  <button className="btn-primary-dark">
-                    <Plus size={14} />
-                    <span>Add Item</span>
-                  </button>
-                  <button className="btn-outline">
-                    <Printer size={14} />
-                    <span>Print Manifest</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Filter Pills */}
-              <div className="filter-pills-row">
-                {(['All (18)', 'Clothing (8)', 'Tech (6)', 'Toiletries (3)', 'Footwear (1)'] as const).map((tab) => {
-                  const categoryKey = tab.split(' ')[0];
-                  const isActive = activeCategoryFilter === (categoryKey === 'All' ? 'All' : categoryKey);
-                  return (
-                    <button
-                      key={tab}
-                      className={`filter-pill ${isActive ? 'active' : ''}`}
-                      onClick={() => setActiveCategoryFilter(categoryKey === 'All' ? 'All' : categoryKey)}
-                    >
-                      {tab}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Category 1: Electronics & Work */}
-              {electronicsItems.length > 0 && (
-                <div className="checklist-category-group">
-                  <div className="category-header-row">
-                    <span className="category-label">
-                      <Headphones size={13} />
-                      <span>Electronics &amp; Work</span>
-                    </span>
-                    <span className="category-subtotal">4,880 G</span>
-                  </div>
-                  <div className="items-two-col-grid">
-                    {electronicsItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`gear-item-card ${item.packed ? 'checked' : ''}`}
-                        onClick={() => toggleItemPacked(item.id)}
-                      >
-                        <div className={`custom-checkbox ${item.packed ? 'checked' : ''}`}>
-                          {item.packed && <Check size={11} strokeWidth={3} />}
-                        </div>
-                        <div className="gear-text-col">
-                          <div className="gear-name">{item.name}</div>
-                          <div className="gear-location">{item.location}</div>
-                        </div>
-                        <div className="gear-weight-col">{formatWeight(item.weightG)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Category 2: Clothing (Cube L) */}
-              {clothingItems.length > 0 && (
-                <div className="checklist-category-group">
-                  <div className="category-header-row">
-                    <span className="category-label">
-                      <Shirt size={13} />
-                      <span>Clothing (Cube L)</span>
-                    </span>
-                    <span className="category-subtotal">1,975 G</span>
-                  </div>
-                  <div className="items-two-col-grid">
-                    {clothingItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`gear-item-card ${item.packed ? 'checked' : ''}`}
-                        onClick={() => toggleItemPacked(item.id)}
-                      >
-                        <div className={`custom-checkbox ${item.packed ? 'checked' : ''}`}>
-                          {item.packed && <Check size={11} strokeWidth={3} />}
-                        </div>
-                        <div className="gear-text-col">
-                          <div className="gear-name">{item.name}</div>
-                          <div className="gear-location">{item.location}</div>
-                        </div>
-                        <div className="gear-weight-col">{formatWeight(item.weightG)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Category 3: Toiletries & Footwear */}
-              {toiletryAndFootwearItems.length > 0 && (
-                <div className="checklist-category-group">
-                  <div className="category-header-row">
-                    <span className="category-label">
-                      <Footprints size={13} />
-                      <span>Toiletries &amp; Footwear</span>
-                    </span>
-                    <span className="category-subtotal">1,770 G</span>
-                  </div>
-                  <div className="items-two-col-grid">
-                    {toiletryAndFootwearItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`gear-item-card ${item.packed ? 'checked' : ''}`}
-                        onClick={() => toggleItemPacked(item.id)}
-                      >
-                        <div className={`custom-checkbox ${item.packed ? 'checked' : ''}`}>
-                          {item.packed && <Check size={11} strokeWidth={3} />}
-                        </div>
-                        <div className="gear-text-col">
-                          <div className="gear-name">{item.name}</div>
-                          <div className="gear-location">{item.location}</div>
-                        </div>
-                        <div className="gear-weight-col">{formatWeight(item.weightG)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Cabin-ready footer row */}
-              <div className="cabin-ready-footer">
-                <CheckCircle2 size={15} />
-                <span>All items accounted for and cabin-ready</span>
-              </div>
-            </div>
-          </div>
+          {activeNav === 'Trip Documents' && (
+            <TripDocumentsView
+              items={state.items}
+              bags={state.bags}
+              activeBag={activeBag}
+              unitSystem={unitSystem}
+              onImportItems={handleImportItems}
+              onRestoreBackup={handleRestoreBackup}
+            />
+          )}
         </main>
       </div>
     </>

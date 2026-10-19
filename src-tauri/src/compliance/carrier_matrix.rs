@@ -658,3 +658,8 @@ pub fn find_carrier_rules(carrier_code: &str) -> Vec<&'static CarrierEnvelope> {
         .filter(|e| e.carrier_code.eq_ignore_ascii_case(carrier_code))
         .collect()
 }
+
+/// Retrieve all carrier envelopes in the matrix
+pub fn get_all_carrier_envelopes() -> Vec<CarrierEnvelope> {
+    GLOBAL_CARRIER_MATRIX.to_vec()
+}
