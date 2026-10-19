@@ -72,6 +72,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS inventory_fts USING fts5(
     content_rowid='rowid'
 );
 
+-- Triggers to keep FTS5 synchronized with inventory_items table
+CREATE TRIGGER IF NOT EXISTS inventory_items_ai AFTER INSERT ON inventory_items BEGIN
+    INSERT INTO inventory_fts(rowid, name, brand, category, tags)
+    VALUES (new.rowid, new.name, new.brand, new.category, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS inventory_items_ad AFTER DELETE ON inventory_items BEGIN
+    INSERT INTO inventory_fts(inventory_fts, rowid, name, brand, category, tags)
+    VALUES('delete', old.rowid, old.name, old.brand, old.category, old.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS inventory_items_au AFTER UPDATE ON inventory_items BEGIN
+    INSERT INTO inventory_fts(inventory_fts, rowid, name, brand, category, tags)
+    VALUES('delete', old.rowid, old.name, old.brand, old.category, old.tags);
+    INSERT INTO inventory_fts(rowid, name, brand, category, tags)
+    VALUES (new.rowid, new.name, new.brand, new.category, new.tags);
+END;
+
 -- 4. Airline Baggage Rules
 CREATE TABLE IF NOT EXISTS airline_rules (
     id TEXT PRIMARY KEY NOT NULL,
@@ -124,8 +142,8 @@ CREATE TABLE IF NOT EXISTS allocations (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY(trip_plan_id) REFERENCES trip_plans(id) ON DELETE CASCADE,
     FOREIGN KEY(inventory_item_id) REFERENCES inventory_items(id) ON DELETE CASCADE,
-    FOREIGN KEY(luggage_shell_id) REFERENCES luggage_shells(id) ON DELETE SET NULL,
-    FOREIGN KEY(sub_container_id) REFERENCES sub_containers(id) ON DELETE SET NULL
+    FOREIGN KEY(luggage_shell_id) REFERENCES luggage_shells(id) ON DELETE CASCADE,
+    FOREIGN KEY(sub_container_id) REFERENCES sub_containers(id) ON DELETE CASCADE
 );
 
 -- Indexes for lightning fast lookups

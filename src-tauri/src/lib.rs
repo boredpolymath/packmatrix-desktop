@@ -119,6 +119,11 @@ fn neutralize_csv_formula_field(field: String) -> String {
     security::neutralize_csv_formula(&field)
 }
 
+#[tauri::command]
+fn import_csv_inventory(raw: String) -> Result<Vec<db::models::InventoryItem>, String> {
+    inventory::parse_csv_inventory(&raw)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -135,7 +140,8 @@ pub fn run() {
             export_backup_json,
             import_backup_json,
             sanitize_export_name,
-            neutralize_csv_formula_field
+            neutralize_csv_formula_field,
+            import_csv_inventory
         ])
         .run(tauri::generate_context!())
         .expect("error while running PackMatrix desktop application");

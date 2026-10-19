@@ -17,6 +17,8 @@ interface Props {
   unitSystem: UnitSystem;
   onImportItems: (newItems: InventoryItem[]) => void;
   onRestoreBackup: (backup: { luggage: LuggageShell[]; inventory: InventoryItem[] }) => void;
+  initialCsvContent?: string | null;
+  onClearInitialCsv?: () => void;
 }
 
 export const TripDocumentsView: React.FC<Props> = ({
@@ -26,6 +28,8 @@ export const TripDocumentsView: React.FC<Props> = ({
   unitSystem,
   onImportItems,
   onRestoreBackup,
+  initialCsvContent,
+  onClearInitialCsv,
 }) => {
   const [csvContent, setCsvContent] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -36,10 +40,6 @@ export const TripDocumentsView: React.FC<Props> = ({
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [manifestDate] = useState(() => new Date().toLocaleDateString());
   const [manifestSerial] = useState(() => `PM-MAN-${Date.now().toString().slice(-6)}`);
-
-  // Compute travel manifest totals
-  const totalWeightG = items.reduce((acc, i) => acc + i.weight_g, 0);
-  const totalValue = items.reduce((acc, i) => acc + i.monetary_value, 0);
 
   // Formula injection check: checks for leading =, +, -, @, \t, \r, %
   const sanitizeCsvValue = (val: string): string => {
@@ -105,6 +105,19 @@ export const TripDocumentsView: React.FC<Props> = ({
     setCsvPreview(parsed);
     setCsvErrors(errors);
   };
+
+  // Handle incoming dropped CSV content (SDLC 7.4 Drag-and-Drop Ingestion)
+  useEffect(() => {
+    if (initialCsvContent) {
+      handleParseCsv(initialCsvContent);
+      setIsCsvModalOpen(true);
+      onClearInitialCsv?.();
+    }
+  }, [initialCsvContent, onClearInitialCsv]);
+
+  // Compute travel manifest totals
+  const totalWeightG = items.reduce((acc, i) => acc + i.weight_g, 0);
+  const totalValue = items.reduce((acc, i) => acc + i.monetary_value, 0);
 
   const handleCommitImport = () => {
     if (csvPreview.length === 0) return;

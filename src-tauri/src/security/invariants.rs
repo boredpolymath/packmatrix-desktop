@@ -104,6 +104,81 @@ pub fn sanitize_export_filename(filename: &str) -> Result<String, AppError> {
     Ok(trimmed.to_string())
 }
 
+/// 6.1 XSS & DOM Injection Neutralization
+/// Encodes dangerous HTML entities (<, >, &, ", ') and neutralizes javascript: pseudo-protocols
+pub fn sanitize_html_content(raw: &str) -> String {
+    let lower = raw.to_lowercase();
+    let mut text_to_encode = raw.to_string();
+
+    if lower.contains("javascript:")
+        || lower.contains("data:text/html")
+        || lower.contains("vbscript:")
+    {
+        text_to_encode = text_to_encode
+            .replace("javascript:", "blocked-scheme:")
+            .replace("JavaScript:", "blocked-scheme:")
+            .replace("JAVASCRIPT:", "blocked-scheme:")
+            .replace("data:text/html", "blocked-scheme:")
+            .replace("vbscript:", "blocked-scheme:");
+    }
+
+    let mut sanitized = String::with_capacity(text_to_encode.len() * 2);
+    for ch in text_to_encode.chars() {
+        match ch {
+            '&' => sanitized.push_str("&amp;"),
+            '<' => sanitized.push_str("&lt;"),
+            '>' => sanitized.push_str("&gt;"),
+            '"' => sanitized.push_str("&quot;"),
+            '\'' => sanitized.push_str("&#x27;"),
+            _ => sanitized.push(ch),
+        }
+    }
+    sanitized
+}
+
+/// 6.1 Path Traversal & Symlink Attack Defense
+/// Validates that an export destination filename and path remain strictly confined within the target directory,
+/// preventing escapes to system roots (/etc/, C:\Windows\System32) and symlink dereference attacks.
+pub fn validate_secure_export_path(
+    base_dir: &std::path::Path,
+    filename: &str,
+) -> Result<std::path::PathBuf, AppError> {
+    if filename.starts_with('/')
+        || filename.starts_with('\\')
+        || (filename.len() >= 2 && filename.chars().nth(1) == Some(':'))
+        || filename.contains("/etc/")
+        || filename.contains("C:\\")
+        || filename.contains("System32")
+    {
+        return Err(AppError::Security(
+            "System root or path traversal sequence prohibited in export destination".into(),
+        ));
+    }
+
+    let safe_filename = sanitize_export_filename(filename)?;
+    let candidate = base_dir.join(&safe_filename);
+
+    if candidate.is_symlink() {
+        return Err(AppError::Security(
+            "Symlink export destinations are strictly prohibited".into(),
+        ));
+    }
+
+    if let Ok(canonical_base) = base_dir.canonicalize() {
+        if candidate.exists() {
+            if let Ok(canonical_cand) = candidate.canonicalize() {
+                if !canonical_cand.starts_with(&canonical_base) {
+                    return Err(AppError::Security(
+                        "Path traversal escape outside sandbox detected".into(),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(candidate)
+}
+
 /// 4.2 JSON Stream Deserialization
 /// Bounded memory parsing enforcing maximum allocation limits
 pub const MAX_JSON_STREAM_BYTES: usize = 50 * 1024 * 1024; // 50MB bounded limit

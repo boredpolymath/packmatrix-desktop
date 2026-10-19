@@ -1,0 +1,131 @@
+name: Release Engineering & SLSA Level 3 Attestation
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_channel:
+        description: 'Release Channel (alpha, beta, stable)'
+        required: true
+        default: 'stable'
+        type: choice
+        options:
+          - alpha
+          - beta
+          - stable
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-and-package:
+    name: Build & Package (${{ matrix.platform.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: macOS Universal
+            os: macos-latest
+            target: universal-apple-darwin
+            bundle-ext: dmg
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle-ext: msi,exe
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundle-ext: AppImage,deb,rpm,tar.gz
+
+    runs-on: ${{ matrix.platform.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set SOURCE_DATE_EPOCH for Bit-for-Bit Hermetic Reproducibility
+        shell: bash
+        run: |
+          COMMIT_TIMESTAMP=$(git log -1 --pretty=%ct)
+          echo "SOURCE_DATE_EPOCH=${COMMIT_TIMESTAMP}" >> $GITHUB_ENV
+          echo "Hermetic timestamp locked to: ${COMMIT_TIMESTAMP}"
+
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        shell: bash
+        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node-version.outputs.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --engine-strict
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: ${{ matrix.platform.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform.target }}
+
+      - name: Install Linux Build Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            squashfs-tools \
+            rpm
+
+      - name: Build Production Frontend Assets
+        run: npm run build
+
+      - name: Build & Package Desktop Application (Tauri v2)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' || secrets.WINDOWS_CERTIFICATE != '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'PackMatrix Desktop ${{ github.ref_name }}'
+          releaseBody: 'See CHANGELOG.md for detailed release notes and cryptographic attestations.'
+          releaseDraft: false
+          prerelease: ${{ github.event.inputs.release_channel != 'stable' }}
+
+      - name: Generate Cryptographic Checksum Manifests (SHA-256 & SHA-512)
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.tar.gz" \) -exec cp {} release-artifacts/ \;
+          cd release-artifacts
+          shasum -a 256 * > packmatrix-manifest-${{ matrix.platform.os }}.sha256
+          shasum -a 512 * > packmatrix-manifest-${{ matrix.platform.os }}.sha512
+
+      - name: Attest Build Provenance (SLSA Level 3)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'release-artifacts/*'
+
+      - name: Upload Platform Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: packmatrix-${{ matrix.platform.os }}
+          path: release-artifacts/*
+          retention-days: 30

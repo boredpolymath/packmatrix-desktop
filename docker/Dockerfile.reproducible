@@ -1,0 +1,41 @@
+# Hermetic Reproducible Build Container for PackMatrix Desktop (Linux x86_64)
+# SLSA Level 3 Compliant Container Definition
+FROM ubuntu:22.04@sha256:ed1544e454989078f5dc1baa018d16c2386de880f20428c5414d0269abb5cffe
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
+
+# Pin exact system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    build-essential \
+    pkg-config \
+    libwebkit2gtk-4.1-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    patchelf \
+    squashfs-tools \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pin Rust Toolchain 1.98.1 with deterministic cargo settings
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.98.1 --profile minimal
+
+# Pin Node.js LTS
+ENV NODE_VERSION=22.14.0
+RUN curl -fsSL https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz | tar -xz -C /usr/local --strip-components=1
+
+WORKDIR /build
+
+# Remap build roots and set deterministic timestamp
+ENV SOURCE_DATE_EPOCH=1700000000
+ENV RUSTFLAGS="--remap-path-prefix=/build=/packmatrix-build-root -Cforce-frame-pointers=yes -Crelocation-model=pic"
+
+CMD ["cargo", "build", "--release", "--manifest-path", "src-tauri/Cargo.toml"]

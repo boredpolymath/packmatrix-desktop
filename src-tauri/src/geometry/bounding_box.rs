@@ -235,4 +235,111 @@ mod tests {
         assert!(check_overflow.is_overflowing);
         assert_eq!(check_overflow.overflow_amount_l, 5.0);
     }
+
+    #[test]
+    fn test_analytical_raw_volume_calculation() {
+        let test_cases = vec![
+            (55.0, 40.0, 20.0, 44.0),
+            (50.0, 30.0, 20.0, 30.0),
+            (10.0, 10.0, 10.0, 1.0),
+            (100.0, 50.0, 30.0, 150.0),
+        ];
+
+        for (l, w, d, expected_v) in test_cases {
+            let dim = Dimensions::new(l, w, d);
+            let v = dim.raw_volume_liters();
+            assert!(
+                (v - expected_v).abs() < 1e-9,
+                "Failed raw volume proof for ({}, {}, {}): expected {}, got {}",
+                l,
+                w,
+                d,
+                expected_v,
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_analytical_corner_bevel_against_numerical_quadrant_integration() {
+        // SDLC 7.1 Analytical Geometry Proof:
+        // Corner bevel deduction formula: Delta_V = (4 - pi) * r^2 * D / 1000
+        // Verify against 2D numerical quadrant integration:
+        // A quadrant corner removed from a square of side r has area:
+        // Area_corner = \int_0^r \int_0^r [x^2 + y^2 > r^2] dx dy
+        let r = 5.0; // 5 cm radius
+        let d = 25.0; // 25 cm depth
+
+        let analytical_delta_v = (4.0 - std::f64::consts::PI) * r * r * d / 1000.0;
+
+        // Numerical integration via 2D Riemann sum (N = 500 steps per axis)
+        let n = 500;
+        let step = r / (n as f64);
+        let mut numerical_corner_area = 0.0;
+
+        for i in 0..n {
+            let x = (i as f64 + 0.5) * step;
+            for j in 0..n {
+                let y = (j as f64 + 0.5) * step;
+                if (x * x + y * y) > (r * r) {
+                    numerical_corner_area += step * step;
+                }
+            }
+        }
+
+        // 4 corners around the perimeter
+        let numerical_delta_v = (4.0 * numerical_corner_area * d) / 1000.0;
+
+        let delta_error = (analytical_delta_v - numerical_delta_v).abs();
+        assert!(
+            delta_error < 0.005,
+            "Analytical bevel deduction ({}) diverged from numerical quadrant integral ({}) by {}",
+            analytical_delta_v,
+            numerical_delta_v,
+            delta_error
+        );
+    }
+
+    #[test]
+    fn test_analytical_trapezoidal_taper_factor() {
+        // Hull taper factor: V_taper = V * (1 + tau) / 2
+        let bag = Dimensions::new(50.0, 40.0, 20.0);
+        let raw = bag.raw_volume_liters(); // 40.0 L
+
+        // When corner_radius is 0, V_usable = raw * (1 + tau) / 2
+        for tau in [0.5, 0.6, 0.75, 0.88, 0.95, 1.0] {
+            let expected_usable = raw * (1.0 + tau) / 2.0;
+            let actual_usable = bag.effective_usable_volume_liters(tau, 0.0);
+            assert!(
+                (actual_usable - expected_usable).abs() < 1e-9,
+                "Taper factor proof failed for tau {}: expected {}, got {}",
+                tau,
+                expected_usable,
+                actual_usable
+            );
+        }
+    }
+
+    #[test]
+    fn test_analytical_boundary_conditions_zero_nan_inf() {
+        // Assert zero floating-point NaN or Inf across boundary conditions (L=0, W=0, D=0)
+        let boundary_dimensions = vec![
+            Dimensions::new(0.0, 0.0, 0.0),
+            Dimensions::new(0.0, 30.0, 20.0),
+            Dimensions::new(50.0, 0.0, 20.0),
+            Dimensions::new(50.0, 30.0, 0.0),
+            Dimensions::new(-10.0, 30.0, 20.0),
+        ];
+
+        for dim in boundary_dimensions {
+            let raw = dim.raw_volume_liters();
+            assert!(!raw.is_nan(), "Raw volume must not be NaN");
+            assert!(!raw.is_infinite(), "Raw volume must not be Inf");
+
+            let usable = dim.effective_usable_volume_liters(0.8, 3.0);
+            assert!(!usable.is_nan(), "Usable volume must not be NaN");
+            assert!(!usable.is_infinite(), "Usable volume must not be Inf");
+            assert!(usable >= 0.0, "Usable volume must be non-negative");
+        }
+    }
 }

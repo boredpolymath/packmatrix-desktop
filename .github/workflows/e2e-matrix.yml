@@ -1,0 +1,69 @@
+name: E2E Multi-Platform Automation Matrix
+# SDLC Phase Gate 5: Section 7.4 Cross-Platform E2E Automation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e-cross-platform-matrix:
+    name: E2E Matrix (${{ matrix.os }} - ${{ matrix.target-name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon
+          - os: macos-14
+            target-name: macOS Apple Silicon (aarch64)
+            browser: webkit
+          # macOS Intel
+          - os: macos-13
+            target-name: macOS Intel (x86_64)
+            browser: webkit
+          # Windows
+          - os: windows-latest
+            target-name: Windows 10/11 (x64)
+            browser: chromium
+          # Linux LTS
+          - os: ubuntu-22.04
+            target-name: Ubuntu 22.04 LTS (glibc)
+            browser: chromium
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        shell: bash
+        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node-version.outputs.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --engine-strict
+
+      - name: Install Playwright Browsers with OS dependencies
+        run: npx playwright install --with-deps
+
+      - name: Build frontend bundle
+        run: npm run build
+
+      - name: Execute Playwright E2E Test Suite (${{ matrix.browser }})
+        run: npx playwright test --project=${{ matrix.browser }}
+
+      - name: Upload Playwright Test Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: playwright-report/
+          retention-days: 14

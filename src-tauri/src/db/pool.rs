@@ -41,6 +41,10 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("Storage engine lock poisoned")]
     Poisoned,
+    #[error("Database is mounted in read-only mode")]
+    ReadOnly,
+    #[error("Disk full: insufficient storage space")]
+    DiskFull,
 }
 
 /// Statistics returned by SQLite wal_checkpoint
@@ -152,6 +156,7 @@ pub struct DbPool {
     max_wal_size_bytes: u64,
     shutdown_signal: Arc<AtomicBool>,
     watcher_handle: Mutex<Option<JoinHandle<()>>>,
+    is_read_only: bool,
 }
 
 impl DbPool {
@@ -201,6 +206,48 @@ impl DbPool {
             max_wal_size_bytes: MAX_WAL_SIZE_BYTES,
             shutdown_signal,
             watcher_handle: Mutex::new(Some(watcher_handle)),
+            is_read_only: false,
+        })
+    }
+
+    /// Opens an existing SQLite database in read-only mode (simulating read-only filesystem mount)
+    pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self, StorageError> {
+        let path_buf = path.as_ref().to_path_buf();
+        if !path_buf.exists() {
+            return Err(StorageError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Database file not found",
+            )));
+        }
+
+        let write_conn = Connection::open_with_flags(
+            &path_buf,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        // Read-only bootstrap pragmas (omits journal_mode and max_page_count mutations)
+        let _ = write_conn.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA temp_store = MEMORY; PRAGMA mmap_size = 268435456;",
+        );
+
+        let writer = Arc::new(Mutex::new(write_conn));
+        let read_pool = Arc::new(ReadPoolInner {
+            source: ConnectionSource::Disk(path_buf.clone()),
+            max_readers: 16,
+            state: Mutex::new(PoolState {
+                idle_conns: Vec::new(),
+                active_count: 0,
+            }),
+            condvar: Condvar::new(),
+        });
+
+        Ok(Self {
+            path: Some(path_buf),
+            writer,
+            read_pool,
+            max_wal_size_bytes: MAX_WAL_SIZE_BYTES,
+            shutdown_signal: Arc::new(AtomicBool::new(false)),
+            watcher_handle: Mutex::new(None),
+            is_read_only: true,
         })
     }
 
@@ -237,7 +284,13 @@ impl DbPool {
             max_wal_size_bytes: MAX_WAL_SIZE_BYTES,
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             watcher_handle: Mutex::new(None),
+            is_read_only: false,
         })
+    }
+
+    /// Returns true if the database pool is mounted in read-only mode
+    pub fn is_read_only(&self) -> bool {
+        self.is_read_only
     }
 
     /// Acquires a dedicated read connection from the pool
@@ -263,8 +316,18 @@ impl DbPool {
     where
         F: FnOnce(&mut Connection) -> Result<R>,
     {
+        if self.is_read_only {
+            return Err(StorageError::ReadOnly);
+        }
+
         let mut writer = self.writer.lock().map_err(|_| StorageError::Poisoned)?;
-        let result = f(&mut writer)?;
+        let result = f(&mut writer).map_err(|err| {
+            if matches!(&err, rusqlite::Error::SqliteFailure(e, _) if e.code == rusqlite::ErrorCode::DiskFull || e.extended_code == 13) {
+                StorageError::DiskFull
+            } else {
+                StorageError::Sqlite(err)
+            }
+        })?;
 
         // Inline WAL threshold verification
         if let Some(wal_size) = self.wal_size_on_disk() {

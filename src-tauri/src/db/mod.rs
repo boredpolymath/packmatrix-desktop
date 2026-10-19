@@ -1,7 +1,13 @@
+#[cfg(test)]
+pub mod benchmark_tests;
+#[cfg(test)]
+pub mod chaos_tests;
+pub mod encryption;
 pub mod migrations;
 pub mod models;
 pub mod pool;
 
+pub use encryption::*;
 pub use migrations::*;
 pub use models::*;
 pub use pool::*;

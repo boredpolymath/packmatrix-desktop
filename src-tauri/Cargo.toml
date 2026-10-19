@@ -31,4 +31,12 @@ custom-protocol = ["tauri/custom-protocol"]
 overflow-checks = true
 
 [profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
 overflow-checks = true
+
+[dev-dependencies]
+proptest = "1.6"

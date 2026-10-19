@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: asset:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: asset:; connect-src 'self'; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'none';",
       "freezePrototype": true,
       "pattern": {
         "use": "isolation",
@@ -43,6 +43,64 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Utility",
+    "shortDescription": "PackMatrix Luggage Geometry Optimizer",
+    "longDescription": "High-precision volumetric modeling, center-of-mass balancing, and airline compliance verification desktop suite.",
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "entitlements": "Entitlements.plist",
+      "dmg": {
+        "windowPosition": { "x": 400, "y": 200 },
+        "windowSize": { "width": 640, "height": 480 },
+        "appPosition": { "x": 180, "y": 220 },
+        "applicationFolderPosition": { "x": 460, "y": 220 }
+      }
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "displayLanguageSelector": true,
+        "installerIcon": "icons/icon.ico"
+      },
+      "wix": {
+        "language": ["en-US"]
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0 | libwebkit2gtk-4.0-37",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1 | libappindicator3-1"
+        ],
+        "section": "utils",
+        "priority": "optional"
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3"
+        ],
+        "release": "1",
+        "epoch": 0
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkKUldSdU9uWjF0U3I0eWFFNnJjRmtUOHVrbG94L2N4dG5qUGpXb3ZlQU94VlJvWW9ZUXJRN1ZRNkYK",
+      "endpoints": [
+        "https://releases.packmatrix.internal/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
   }
 }

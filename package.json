@@ -1,7 +1,7 @@
 {
   "name": "packmatrix-desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "packageManager": "npm@11.1.0",
   "engines": {
     "node": ">=22.0.0",
@@ -16,7 +16,11 @@
     "audit:npm": "npm audit --audit-level=high",
     "audit:cargo": "cargo audit --manifest-path src-tauri/Cargo.toml",
     "deny:cargo": "cargo-deny --manifest-path src-tauri/Cargo.toml check",
-    "audit": "npm run audit:npm && npm run audit:cargo && npm run deny:cargo"
+    "audit": "npm run audit:npm && npm run audit:cargo && npm run deny:cargo",
+    "test:e2e": "playwright test",
+    "verify:workflows": "node scripts/verify-e2e-workflows.mjs",
+    "verify:chaos": "node scripts/verify-chaos-resilience.mjs",
+    "audit:airgap": "node scripts/verify-airgap-packet-audit.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.59.0",

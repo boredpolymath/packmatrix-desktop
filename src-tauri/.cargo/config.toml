@@ -3,5 +3,7 @@ rustflags = [
   "-Dwarnings",
   "-Cforce-frame-pointers=yes",
   "-Crelocation-model=pic",
-  "-Ccontrol-flow-guard=yes"
+  "-Ccontrol-flow-guard=yes",
+  "--remap-path-prefix=/Volumes/External/boredpolymath/projects/packmatrix-desktop=/packmatrix-build-root"
 ]
+
