@@ -1,12 +1,8 @@
 use rusqlite::{Connection, Result};
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
-    // Enable WAL mode for durability, concurrency, and crash resilience
-    conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
-         PRAGMA foreign_keys = ON;"
-    )?;
+    // Apply full 8-step PRAGMA bootstrap sequence for WAL, caching, and integrity
+    crate::db::pool::bootstrap_connection(conn)?;
 
     // Execute schema creation
     let schema_sql = include_str!("../../migrations/001_initial_schema.sql");
@@ -37,13 +33,14 @@ mod tests {
             rusqlite::params!["cube-1", "bag-1", "Clothing Cube L", "cube", 32.0, 32.0, 11.2, 4.2],
         ).expect("insert cube");
 
-        let count: i64 = conn.query_row(
-            "SELECT count(*) FROM sub_containers WHERE luggage_shell_id = 'bag-1'",
-            [],
-            |r| r.get(0),
-        ).expect("query count");
+        let count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sub_containers WHERE luggage_shell_id = 'bag-1'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("query count");
 
         assert_eq!(count, 1);
     }
 }
-

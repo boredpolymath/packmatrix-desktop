@@ -1,0 +1,8 @@
+# PackMatrix Desktop — Strict Code Ownership & Peer Review Policy
+# SDLC Gate 0: Section 0.3 Enforces >= 2 Independent Peer Reviews for All Changes
+
+* @boredpolymath/maintainers @boredpolymath/security-reviewers
+/src-tauri/ @boredpolymath/maintainers @boredpolymath/geometry-leads
+/src-tauri/src/db/ @boredpolymath/maintainers @boredpolymath/security-reviewers
+/.github/ @boredpolymath/maintainers @boredpolymath/security-reviewers
+/SDLC.md @boredpolymath/maintainers @boredpolymath/security-reviewers

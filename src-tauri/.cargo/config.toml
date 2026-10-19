@@ -1,0 +1,7 @@
+[build]
+rustflags = [
+  "-Dwarnings",
+  "-Cforce-frame-pointers=yes",
+  "-Crelocation-model=pic",
+  "-Ccontrol-flow-guard=yes"
+]

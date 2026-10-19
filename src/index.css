@@ -99,16 +99,27 @@ html, body {
 
 /* App Header */
 .app-header {
-  height: 60px;
+  min-height: 60px;
   background-color: var(--nav-background);
   color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1.25rem;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 50;
   flex-shrink: 0;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.header-left,
+.header-center,
+.header-right {
+  -webkit-app-region: no-drag;
 }
 
 .header-left {

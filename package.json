@@ -2,12 +2,21 @@
   "name": "packmatrix-desktop",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "npm@11.1.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=11.0.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:npm": "npm audit --audit-level=high",
+    "audit:cargo": "cargo audit --manifest-path src-tauri/Cargo.toml",
+    "deny:cargo": "cargo-deny --manifest-path src-tauri/Cargo.toml check",
+    "audit": "npm run audit:npm && npm run audit:cargo && npm run deny:cargo"
   },
   "dependencies": {
     "lucide-react": "^1.59.0",

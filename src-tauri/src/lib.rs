@@ -1,12 +1,15 @@
-pub mod geometry;
-pub mod db;
-pub mod inventory;
 pub mod compliance;
+pub mod db;
 pub mod export;
+pub mod geometry;
+pub mod inventory;
+pub mod security;
 
-use geometry::{Dimensions, VolumetricResult, WeightedPoint3D, BalanceReport, calculate_center_of_mass};
-use db::models::{LuggageShell, AirlineRule, ComplianceEvaluation};
 use compliance::rules::evaluate_luggage_compliance;
+use db::models::{AirlineRule, ComplianceEvaluation, LuggageShell};
+use geometry::{
+    calculate_center_of_mass, BalanceReport, Dimensions, VolumetricResult, WeightedPoint3D,
+};
 
 #[tauri::command]
 fn calculate_luggage_volume(
@@ -37,10 +40,7 @@ fn calculate_luggage_volume(
 }
 
 #[tauri::command]
-fn calculate_pack_balance(
-    items: Vec<WeightedPoint3D>,
-    max_depth_cm: f64,
-) -> BalanceReport {
+fn calculate_pack_balance(items: Vec<WeightedPoint3D>, max_depth_cm: f64) -> BalanceReport {
     calculate_center_of_mass(&items, max_depth_cm)
 }
 
@@ -65,6 +65,8 @@ fn export_backup_json(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             calculate_luggage_volume,
             calculate_pack_balance,

@@ -4,19 +4,24 @@ version = "0.1.0"
 description = "PackMatrix Desktop: Local-First Luggage Geometry Optimizer & Gear Suite"
 authors = ["Bored Polymath Studios"]
 edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = ["isolation"] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "isolation"] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 csv = "1.3"
 thiserror = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
 
 [features]
 default = ["custom-protocol"]

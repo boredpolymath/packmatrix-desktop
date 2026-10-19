@@ -1,0 +1,162 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  toolchain-lockin-verification:
+    name: Gate 0.1 - Compiler & Runtime Lock-In Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node-version.outputs.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Verify package manager immutability & frozen install
+        run: npm ci --engine-strict
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt, llvm-tools-preview
+          targets: aarch64-apple-darwin, x86_64-apple-darwin, x86_64-pc-windows-msvc, x86_64-unknown-linux-gnu
+
+      - name: Run Cargo with frozen lockfile
+        working-directory: ./src-tauri
+        run: cargo check --frozen
+
+  supply-chain-defense:
+    name: Gate 0.2 - Supply Chain Security & Dependency Defense
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node-version.outputs.NODE_VERSION }}
+
+      - name: Run npm audit (high severity threshold)
+        run: npm audit --audit-level=high
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+
+      - name: Install cargo-deny & cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-audit
+
+      - name: Run cargo-deny checks (licenses, advisories, bans, sources)
+        working-directory: ./src-tauri
+        run: cargo-deny check
+
+      - name: Run cargo-audit vulnerability scan
+        working-directory: ./src-tauri
+        run: cargo audit
+
+      - name: Dependency Review (PRs only)
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  code-quality-and-secret-scanning:
+    name: Gate 0.3 - Code Quality, Security & Secret Scanning Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read Node.js version from .nvmrc
+        id: node-version
+        run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node-version.outputs.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --engine-strict
+
+      - name: Run Frontend Linting (oxlint)
+        run: npm run lint
+
+      - name: Run TypeScript Type Check (tsc --noEmit)
+        run: npx tsc --noEmit
+
+      - name: Install Rust toolchain with clippy & rustfmt
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt
+
+      - name: Run Cargo Clippy (-D warnings)
+        working-directory: ./src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run Cargo Format Check
+        working-directory: ./src-tauri
+        run: cargo fmt --check
+
+      - name: TruffleHog Secret Scanning
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  sbom-generation:
+    name: Gate 0.2 - Automated SBOM Generation (Syft)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM (CycloneDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: 'cyclonedx-json'
+          output-file: 'packmatrix-sbom.cyclonedx.json'
+
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: 'spdx-json'
+          output-file: 'packmatrix-sbom.spdx.json'
+
+      - name: Archive SBOM Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: packmatrix-sboms
+          path: |
+            packmatrix-sbom.cyclonedx.json
+            packmatrix-sbom.spdx.json
+          retention-days: 90

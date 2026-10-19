@@ -68,4 +68,3 @@ mod tests {
         assert!(with_bevel_and_taper > 20.0);
     }
 }
-

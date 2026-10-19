@@ -15,16 +15,25 @@ pub fn evaluate_luggage_compliance(
 
     if length_diff_cm < 0.0 {
         is_compliant = false;
-        warnings.push(format!("Length exceeds carrier limit by {:.1} cm", length_diff_cm.abs()));
+        warnings.push(format!(
+            "Length exceeds carrier limit by {:.1} cm",
+            length_diff_cm.abs()
+        ));
     }
     if width_diff_cm < 0.0 {
         is_compliant = false;
-        warnings.push(format!("Width exceeds carrier limit by {:.1} cm", width_diff_cm.abs()));
+        warnings.push(format!(
+            "Width exceeds carrier limit by {:.1} cm",
+            width_diff_cm.abs()
+        ));
     }
 
     let depth_alert_message = if depth_diff_cm < 0.0 {
         is_compliant = false;
-        warnings.push(format!("Depth exceeds limit by {:.1} cm (potential overhead sizer obstruction)", depth_diff_cm.abs()));
+        warnings.push(format!(
+            "Depth exceeds limit by {:.1} cm (potential overhead sizer obstruction)",
+            depth_diff_cm.abs()
+        ));
         Some(format!("Depth Alert: -{:.1} cm", depth_diff_cm.abs()))
     } else {
         None
@@ -40,7 +49,7 @@ pub fn evaluate_luggage_compliance(
 
     ComplianceEvaluation {
         carrier_name: rule.carrier_name.clone(),
-        is_compliant: is_compliant && weight_diff_kg.map_or(true, |w| w >= 0.0),
+        is_compliant: is_compliant && weight_diff_kg.is_none_or(|w| w >= 0.0),
         length_diff_cm,
         width_diff_cm,
         depth_diff_cm,

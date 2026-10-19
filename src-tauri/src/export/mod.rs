@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::db::models::{InventoryItem, LuggageShell};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FullExportPackage {
@@ -9,7 +9,10 @@ pub struct FullExportPackage {
     pub inventory: Vec<InventoryItem>,
 }
 
-pub fn generate_json_export(luggage: Vec<LuggageShell>, inventory: Vec<InventoryItem>) -> Result<String, serde_json::Error> {
+pub fn generate_json_export(
+    luggage: Vec<LuggageShell>,
+    inventory: Vec<InventoryItem>,
+) -> Result<String, serde_json::Error> {
     let package = FullExportPackage {
         version: "1.0.0".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),

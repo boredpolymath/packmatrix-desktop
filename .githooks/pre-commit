@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# PackMatrix Desktop — Strict SDLC Gate 0.3 Pre-Commit Hook
+# Verifies compiler hygiene, formatting, static analysis, type checking, and secret scanning.
+
+set -euo pipefail
+
+echo "========================================================"
+echo " [SDLC Gate 0.3] Running Automated Pre-Commit Verifications"
+echo "========================================================"
+
+# 1. Rust Clippy (Zero Warnings)
+echo "--> [1/5] Checking Cargo Clippy (-D warnings)..."
+(cd src-tauri && cargo clippy --all-targets -- -D warnings)
+
+# 2. Rust Formatting Check
+echo "--> [2/5] Checking Cargo Formatting (cargo fmt --check)..."
+(cd src-tauri && cargo fmt --check)
+
+# 3. Frontend Linting (oxlint / eslint)
+echo "--> [3/5] Checking Frontend Linting (npm run lint)..."
+if command -v npm >/dev/null 2>&1; then
+    npm run lint
+else
+    echo "    Notice: npm not found in current interactive PATH, skipping local npm run lint"
+fi
+
+# 4. TypeScript Type Checking (tsc --noEmit)
+echo "--> [4/5] Checking TypeScript Types (npx tsc --noEmit)..."
+if command -v npx >/dev/null 2>&1; then
+    npx tsc --noEmit
+else
+    echo "    Notice: npx not found in current interactive PATH, skipping local npx tsc"
+fi
+
+# 5. Secret Scanning (TruffleHog / Pattern Check)
+echo "--> [5/5] Checking for accidental secrets & certificates..."
+if command -v trufflehog >/dev/null 2>&1; then
+    trufflehog git file://. --since-commit HEAD --only-verified --fail
+else
+    echo "    Notice: trufflehog CLI not found in PATH; running built-in entropy & credential scan..."
+    # Fallback git diff scan for private keys, AWS keys, generic secrets
+    if git diff --cached | grep -E -i "(BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY|AKIA[0-9A-Z]{16}|ghp_[0-9a-zA-Z]{36}|xox[baprs]-[0-9a-zA-Z]{10,48})"; then
+        echo "ERROR: Potential cryptographic secret or private token detected in staged files!" >&2
+        exit 1
+    fi
+fi
+
+echo "========================================================"
+echo " [SDLC Gate 0.3] All Pre-Commit Checks PASSED successfully!"
+echo "========================================================"

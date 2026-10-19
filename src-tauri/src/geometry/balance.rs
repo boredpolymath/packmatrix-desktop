@@ -47,11 +47,16 @@ pub fn calculate_center_of_mass(items: &[WeightedPoint3D], max_depth_cm: f64) ->
     let mut warning = None;
 
     if !is_spine_flush_optimal {
-        warning = Some("High leverage warning: heavy items positioned away from spine panel".to_string());
+        warning =
+            Some("High leverage warning: heavy items positioned away from spine panel".to_string());
     }
 
     let lateral_penalty = (com_x.abs() * 5.0).min(20.0);
-    let depth_penalty = if com_y > (max_depth_cm * 0.5) { 25.0 } else { 0.0 };
+    let depth_penalty = if com_y > (max_depth_cm * 0.5) {
+        25.0
+    } else {
+        0.0
+    };
     let balance_score_pct = (100.0 - lateral_penalty - depth_penalty).clamp(0.0, 100.0);
 
     BalanceReport {

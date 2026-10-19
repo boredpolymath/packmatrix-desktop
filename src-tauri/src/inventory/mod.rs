@@ -12,7 +12,10 @@ pub struct InventorySummary {
 pub fn summarize_inventory(items: &[InventoryItem]) -> InventorySummary {
     let total_count = items.len();
     let total_mass_g = items.iter().map(|i| i.weight_g).sum();
-    let packed_items: Vec<_> = items.iter().filter(|i| i.readiness_state == "packed").collect();
+    let packed_items: Vec<_> = items
+        .iter()
+        .filter(|i| i.readiness_state == "packed")
+        .collect();
     let packed_count = packed_items.len();
     let packed_mass_g = packed_items.iter().map(|i| i.weight_g).sum();
 
