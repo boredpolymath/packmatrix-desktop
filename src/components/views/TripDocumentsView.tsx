@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { InventoryItem, LuggageShell, UnitSystem } from '../../types';
 import { validateBackupRestorePackage } from '../../utils/validation';
 import {

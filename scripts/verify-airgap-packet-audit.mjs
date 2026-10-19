@@ -34,6 +34,11 @@ export function auditAirGapCompliance(metrics) {
   if (!metrics.monitoredInterfaces || !Array.isArray(metrics.monitoredInterfaces)) {
     throw new Error('Monitored interfaces list missing or invalid');
   }
+  for (const iface of requiredInterfaces) {
+    if (!metrics.monitoredInterfaces.includes(iface)) {
+      throw new Error(`Required interface ${iface} not present in monitored list`);
+    }
+  }
 
   return { compliant: true, durationHours: metrics.durationSeconds / 3600 };
 }
@@ -107,7 +112,7 @@ console.log('\n▶ [Test 6] Edge Case: Rejecting Malformed / Negative Packet Met
 let malformedTrapped = false;
 try {
   auditAirGapCompliance({ ...nominalMetrics, totalCapturedPackets: -1 });
-} catch (e) {
+} catch (_e) {
   malformedTrapped = true;
 }
 assert(malformedTrapped, 'Negative packet count must be rejected');
@@ -115,7 +120,7 @@ assert(malformedTrapped, 'Negative packet count must be rejected');
 let nanTrapped = false;
 try {
   auditAirGapCompliance({ ...nominalMetrics, durationSeconds: NaN });
-} catch (e) {
+} catch (_e) {
   nanTrapped = true;
 }
 assert(nanTrapped, 'NaN duration must be rejected');

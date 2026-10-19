@@ -87,7 +87,7 @@ assert(!oneByteOverflow.success && oneByteOverflow.error.code === 'SQLITE_FULL',
 let invalidByteSizeTrapped = false;
 try {
   simulateDiskWrite(-50, 1024);
-} catch (e) {
+} catch (_e) {
   invalidByteSizeTrapped = true;
 }
 assert(invalidByteSizeTrapped, 'Negative byte request rejected');

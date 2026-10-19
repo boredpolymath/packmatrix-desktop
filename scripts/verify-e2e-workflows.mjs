@@ -141,7 +141,7 @@ function parseCsvSafely(csv) {
 let emptyCsvRejected = false;
 try {
   parseCsvSafely('');
-} catch (e) {
+} catch (_e) {
   emptyCsvRejected = true;
 }
 assert(emptyCsvRejected, 'Empty CSV correctly rejected');
@@ -149,7 +149,7 @@ assert(emptyCsvRejected, 'Empty CSV correctly rejected');
 let headerOnlyCsvRejected = false;
 try {
   parseCsvSafely('Item Name,Brand,Weight');
-} catch (e) {
+} catch (_e) {
   headerOnlyCsvRejected = true;
 }
 assert(headerOnlyCsvRejected, 'Header-only CSV correctly rejected');

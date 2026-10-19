@@ -13,7 +13,6 @@ import {
   WifiOff,
   Lock,
   AlertTriangle,
-  HardDrive,
   ShieldCheck,
 } from 'lucide-react';
 import type {
@@ -192,7 +191,7 @@ export function App() {
       }),
     };
     executeCommand(cmd);
-  }, [executeCommand]);
+  }, [checkWriteAllowed, executeCommand]);
 
   const handleToggleExpandBag = useCallback(() => {
     if (!checkWriteAllowed()) return;
@@ -213,7 +212,7 @@ export function App() {
       }),
     };
     executeCommand(cmd);
-  }, [activeBag.is_expanded, executeCommand]);
+  }, [activeBag.is_expanded, checkWriteAllowed, executeCommand]);
 
   const handleSelectActiveBag = useCallback((bagId: string) => {
     const previousId = state.activeBagId;
