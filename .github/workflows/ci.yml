@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   toolchain-lockin-verification:
     name: Gate 0.1 - Compiler & Runtime Lock-In Verification
