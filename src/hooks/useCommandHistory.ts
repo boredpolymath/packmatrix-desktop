@@ -52,6 +52,12 @@ export function useCommandHistory<T>(initialState: T) {
     });
   }, []);
 
+  const resetHistory = useCallback((newState: T) => {
+    setState(newState);
+    setHistory([]);
+    setRedoStack([]);
+  }, []);
+
   const canUndo = history.length > 0;
   const canRedo = redoStack.length > 0;
 
@@ -63,6 +69,7 @@ export function useCommandHistory<T>(initialState: T) {
     redo,
     canUndo,
     canRedo,
+    resetHistory,
     historyLength: history.length,
     lastCommandName: history[history.length - 1]?.description,
   };

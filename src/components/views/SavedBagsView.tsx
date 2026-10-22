@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import type { LuggageShell, UnitSystem } from '../../types';
+import type { LuggageShell, UnitSystem, CatalogBag } from '../../types';
 import { Luggage, Plus, Check, Box } from 'lucide-react';
+import { BagSearchAutocomplete } from '../common/BagSearchAutocomplete';
 
 interface Props {
   bags: LuggageShell[];
@@ -35,6 +36,18 @@ export const SavedBagsView: React.FC<Props> = ({
     : 0;
   const taperFactor = (1.0 + Math.max(0.5, Math.min(1.0, taperRatio))) / 2.0;
   const usableVolL = Math.max(0, (rawVolL - bevelLossL) * taperFactor);
+
+  const handleSelectCatalogBag = (catalogBag: CatalogBag) => {
+    setName(catalogBag.name);
+    setBrand(catalogBag.brand);
+    setLengthCm(catalogBag.length_cm);
+    setWidthCm(catalogBag.width_cm);
+    setDepthCm(catalogBag.depth_cm);
+    setTareWeightG(catalogBag.tare_weight_g);
+    setExpansionGussetCm(catalogBag.expansion_gusset_cm);
+    setCornerRadiusCm(catalogBag.corner_radius_cm);
+    setTaperRatio(catalogBag.taper_ratio);
+  };
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,14 +249,17 @@ export const SavedBagsView: React.FC<Props> = ({
         >
           <div
             style={{
-              background: 'var(--surface-card)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
+              color: 'var(--text-dark, #0f172a)',
+              border: '1px solid var(--border-medium, #cbd5e1)',
               borderRadius: '16px',
               width: '740px',
               maxWidth: '92vw',
               maxHeight: '90vh',
               overflowY: 'auto',
               padding: '1.75rem',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+              boxShadow: 'var(--shadow-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.35))',
               display: 'flex',
               flexDirection: 'column',
               gap: '1.25rem',
@@ -270,6 +286,11 @@ export const SavedBagsView: React.FC<Props> = ({
                 ✕
               </button>
             </div>
+
+            <BagSearchAutocomplete
+              onSelectBag={handleSelectCatalogBag}
+              unitSystem={unitSystem}
+            />
 
             <form onSubmit={handleCreate} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -515,10 +536,12 @@ export const SavedBagsView: React.FC<Props> = ({
                     style={{
                       padding: '0.55rem 0.9rem',
                       borderRadius: '6px',
-                      border: '1px solid var(--border-medium)',
-                      background: 'transparent',
+                      border: '1px solid var(--border-medium, #cbd5e1)',
+                      background: '#ffffff',
+                      color: 'var(--text-body, #334155)',
                       cursor: 'pointer',
                       fontSize: '12px',
+                      fontWeight: 600,
                     }}
                   >
                     Cancel
@@ -529,7 +552,7 @@ export const SavedBagsView: React.FC<Props> = ({
                       padding: '0.55rem 1.1rem',
                       borderRadius: '6px',
                       border: 'none',
-                      background: 'var(--primary)',
+                      background: 'var(--primary, #0284c7)',
                       color: '#ffffff',
                       fontWeight: 600,
                       cursor: 'pointer',

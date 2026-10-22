@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import type { AirlineRule, LuggageShell, InventoryItem, ServiceTier, UnitSystem } from '../../types';
+import type { AirlineRule, LuggageShell, InventoryItem, ServiceTier, UnitSystem, CarrierEnvelope } from '../../types';
+import { DEFAULT_FALLBACK_BAG } from '../../types';
 import {
   Droplet,
   Battery,
@@ -8,6 +9,7 @@ import {
 
 interface Props {
   rules: AirlineRule[];
+  carrierEnvelopes?: CarrierEnvelope[];
   activeBag: LuggageShell;
   items: InventoryItem[];
   unitSystem: UnitSystem;
@@ -22,6 +24,7 @@ const FARE_TIERS: ServiceTier[] = [
 
 export const AirlineRulesView: React.FC<Props> = ({
   rules,
+  carrierEnvelopes: _carrierEnvelopes,
   activeBag,
   items,
   unitSystem,
@@ -31,15 +34,18 @@ export const AirlineRulesView: React.FC<Props> = ({
 
   const selectedRule = rules.find((r) => r.id === selectedRuleId) || rules[0];
 
+  // Defensive fallback against undefined activeBag
+  const bag = activeBag || DEFAULT_FALLBACK_BAG;
+
   // Calculate packed weight
   const packedItems = items.filter((i) => i.readiness_state === 'Packed');
   const packedGearWeightKg = packedItems.reduce((acc, i) => acc + i.weight_g, 0) / 1000.0;
-  const totalBagWeightKg = (activeBag.tare_weight_g / 1000.0) + packedGearWeightKg;
+  const totalBagWeightKg = (bag.tare_weight_g / 1000.0) + packedGearWeightKg;
 
   // Effective depth with expansion gusset
-  const effectiveDepthCm = activeBag.is_expanded
-    ? activeBag.depth_cm + activeBag.expansion_gusset_cm
-    : activeBag.depth_cm;
+  const effectiveDepthCm = bag.is_expanded
+    ? bag.depth_cm + bag.expansion_gusset_cm
+    : bag.depth_cm;
 
   // Gate sizer limit
   const limitL = selectedRule?.carry_on_length_cm || 55.0;
@@ -48,8 +54,8 @@ export const AirlineRulesView: React.FC<Props> = ({
   const limitKg = selectedRule?.carry_on_max_weight_kg;
 
   // Dimensional diffs
-  const diffL = activeBag.length_cm - limitL;
-  const diffW = activeBag.width_cm - limitW;
+  const diffL = bag.length_cm - limitL;
+  const diffW = bag.width_cm - limitW;
   const diffD = effectiveDepthCm - limitD;
   const diffKg = limitKg ? totalBagWeightKg - limitKg : undefined;
 
@@ -211,20 +217,20 @@ export const AirlineRulesView: React.FC<Props> = ({
                   y="30"
                   width={diffW > 0 ? "175" : "155"}
                   height={diffL > 0 ? "115" : "100"}
-                  rx={activeBag.corner_radius_cm * 2}
+                  rx={bag.corner_radius_cm * 2}
                   fill={isFullyCompliant ? "rgba(5, 150, 105, 0.15)" : "rgba(239, 68, 68, 0.2)"}
                   stroke={isFullyCompliant ? "#059669" : "#dc2626"}
                   strokeWidth="2"
                 />
                 <text x="120" y="75" textAnchor="middle" fontSize="12" fontWeight="700" fill="#0f172a">
-                  {activeBag.name}
+                  {bag.name}
                 </text>
                 <text x="120" y="92" textAnchor="middle" fontSize="10" fill="#64748b">
-                  {formatDim(activeBag.length_cm)} × {formatDim(activeBag.width_cm)} × {formatDim(effectiveDepthCm)}
+                  {formatDim(bag.length_cm)} × {formatDim(bag.width_cm)} × {formatDim(effectiveDepthCm)}
                 </text>
-                {activeBag.is_expanded && (
+                {bag.is_expanded && (
                   <text x="120" y="108" textAnchor="middle" fontSize="9.5" fontWeight="600" fill="#d97706">
-                    (Zipper Expanded: +{activeBag.expansion_gusset_cm} cm)
+                    (Zipper Expanded: +{bag.expansion_gusset_cm} cm)
                   </text>
                 )}
               </svg>

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import type { InventoryItem, SubContainer, ReadinessState, ItemCategory, UnitSystem } from '../../types';
+import type { InventoryItem, SubContainer, ReadinessState, ItemCategory, UnitSystem, CatalogProduct } from '../../types';
 import { useVirtualScroll } from '../../hooks/useVirtualScroll';
+import { ProductSearchAutocomplete } from '../common/ProductSearchAutocomplete';
 import {
   Search,
   Plus,
@@ -72,6 +73,31 @@ export const GearInventoryView: React.FC<Props> = ({
   const [newValue, setNewValue] = useState(99);
   const [newReadiness, setNewReadiness] = useState<ReadinessState>('In Closet');
   const [newTags, setNewTags] = useState('');
+  const [newLengthCm, setNewLengthCm] = useState(15);
+  const [newWidthCm, setNewWidthCm] = useState(10);
+  const [newDepthCm, setNewDepthCm] = useState(4);
+  const [newIsLiquid, setNewIsLiquid] = useState(false);
+  const [newLiquidMl, setNewLiquidMl] = useState(0);
+  const [newIsBattery, setNewIsBattery] = useState(false);
+  const [newBatteryWh, setNewBatteryWh] = useState(0);
+
+  const handleSelectCatalogProduct = (product: CatalogProduct) => {
+    setNewName(product.name);
+    setNewBrand(product.brand);
+    setNewCategory(product.category);
+    setNewWeightG(product.weight_g);
+    setNewValue(product.monetary_value || 99);
+    setNewLengthCm(product.length_cm);
+    setNewWidthCm(product.width_cm);
+    setNewDepthCm(product.depth_cm);
+    setNewIsLiquid(product.is_liquid);
+    setNewLiquidMl(product.liquid_volume_ml);
+    setNewIsBattery(product.is_battery);
+    setNewBatteryWh(product.battery_wh);
+    if (product.tags) {
+      setNewTags(product.tags);
+    }
+  };
 
   // Filtering
   const filteredItems = useMemo(() => {
@@ -148,17 +174,19 @@ export const GearInventoryView: React.FC<Props> = ({
       brand: newBrand.trim() || undefined,
       category: newCategory,
       weight_g: Number(newWeightG),
-      length_cm: 10,
-      width_cm: 10,
-      depth_cm: 2,
-      compressibility_factor: 1.0,
-      is_liquid: false,
-      liquid_volume_ml: 0,
+      length_cm: Number(newLengthCm),
+      width_cm: Number(newWidthCm),
+      depth_cm: Number(newDepthCm),
+      compressibility_factor: newCategory === 'Clothing' ? 0.6 : 1.0,
+      is_liquid: newIsLiquid,
+      liquid_volume_ml: Number(newLiquidMl),
       monetary_value: Number(newValue),
       currency: 'USD',
       readiness_state: newReadiness,
       tags: newTags.trim() || undefined,
       packed: newReadiness === 'Packed',
+      is_battery: newIsBattery,
+      battery_wh: Number(newBatteryWh),
     };
 
     onAddItem(newItem);
@@ -718,10 +746,17 @@ export const GearInventoryView: React.FC<Props> = ({
         >
           <div
             style={{
-              background: 'var(--surface-card)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
+              color: 'var(--text-dark, #0f172a)',
+              border: '1px solid var(--border-medium, #cbd5e1)',
               borderRadius: '16px',
               width: '520px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               padding: '1.5rem',
+              boxShadow: 'var(--shadow-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.35))',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -729,6 +764,10 @@ export const GearInventoryView: React.FC<Props> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Add Gear Item to Inventory</h3>
+            
+            {/* SDLC Instant Product Catalog Autocomplete (Local-First + UPCitemdb) */}
+            <ProductSearchAutocomplete onSelectProduct={handleSelectCatalogProduct} unitSystem={unitSystem} />
+
             <form onSubmit={handleCreateItem} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '3px' }}>
@@ -820,10 +859,12 @@ export const GearInventoryView: React.FC<Props> = ({
                   style={{
                     padding: '0.5rem 0.9rem',
                     borderRadius: '6px',
-                    border: '1px solid var(--border-medium)',
-                    background: 'transparent',
+                    border: '1px solid var(--border-medium, #cbd5e1)',
+                    background: '#ffffff',
+                    color: 'var(--text-body, #334155)',
                     cursor: 'pointer',
                     fontSize: '12px',
+                    fontWeight: 600,
                   }}
                 >
                   Cancel
@@ -834,7 +875,7 @@ export const GearInventoryView: React.FC<Props> = ({
                     padding: '0.5rem 1.1rem',
                     borderRadius: '6px',
                     border: 'none',
-                    background: 'var(--primary)',
+                    background: 'var(--primary, #0284c7)',
                     color: '#ffffff',
                     fontWeight: 600,
                     cursor: 'pointer',
