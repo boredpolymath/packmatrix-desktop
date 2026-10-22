@@ -226,7 +226,9 @@ mod tests {
 
     #[test]
     fn test_diagnostic_logging_and_pii_redaction() {
-        let redactor = DiagnosticRedactor::new("packmatrix-prod-salt-2026");
+        let redaction_salt = std::env::var("PACKMATRIX_TEST_REDACTION_SALT")
+            .unwrap_or_else(|_| "packmatrix-test-redaction-salt".to_string());
+        let redactor = DiagnosticRedactor::new(&redaction_salt);
 
         // Test deterministic salted hashing
         let hash1 = redactor.redact_item_name("MacBook Pro 16-inch M3 Max");
@@ -248,7 +250,9 @@ mod tests {
         assert!(!serial_redacted.contains("9874"));
 
         let dir = TestDir::new("logging");
-        let logger = RotatingDiagnosticLogger::new(dir.path(), "test-salt");
+        let logger_salt = std::env::var("PACKMATRIX_TEST_LOGGER_SALT")
+            .unwrap_or_else(|_| "packmatrix-test-logger-salt".to_string());
+        let logger = RotatingDiagnosticLogger::new(dir.path(), &logger_salt);
 
         let entry = logger
             .log_event(
