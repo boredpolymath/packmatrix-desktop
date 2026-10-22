@@ -5,7 +5,10 @@ import type {
   InventoryItem,
   AirlineRule,
   UnitSystem,
+  CatalogProduct,
 } from '../../types';
+import { DEFAULT_FALLBACK_BAG } from '../../types';
+import { ProductSearchAutocomplete } from '../common/ProductSearchAutocomplete';
 import {
   Luggage,
   Scale,
@@ -55,28 +58,49 @@ export const MyPackingView: React.FC<Props> = ({
   const [newItemName, setNewItemName] = useState('');
   const [newItemWeight, setNewItemWeight] = useState(250);
   const [newItemCategory, setNewItemCategory] = useState<'Tech' | 'Clothing' | 'Toiletries' | 'Footwear'>('Tech');
+  const [selectedCatalogProduct, setSelectedCatalogProduct] = useState<CatalogProduct | null>(null);
+
+  const handleSelectCatalogProduct = (product: CatalogProduct) => {
+    setSelectedCatalogProduct(product);
+    setNewItemName(product.name);
+    setNewItemCategory(product.category === 'Documents' || product.category === 'Misc' ? 'Tech' : product.category);
+    setNewItemWeight(product.weight_g);
+  };
+
+  // Defensive fallback against undefined activeBag
+  const bag = activeBag || DEFAULT_FALLBACK_BAG;
 
   // Filter packed items
   const packedItems = useMemo(() => items.filter((i) => i.readiness_state === 'Packed'), [items]);
   const packedGearMassG = useMemo(() => packedItems.reduce((acc, i) => acc + i.weight_g, 0), [packedItems]);
-  const totalMassG = activeBag.tare_weight_g + packedGearMassG;
+  const totalMassG = bag.tare_weight_g + packedGearMassG;
 
   // Effective depth with expansion gusset ($D_{\text{eff}} = D + \Delta D_{\text{gusset}}$)
-  const effectiveDepthCm = activeBag.is_expanded
-    ? activeBag.depth_cm + activeBag.expansion_gusset_cm
-    : activeBag.depth_cm;
+  const effectiveDepthCm = bag.is_expanded
+    ? bag.depth_cm + bag.expansion_gusset_cm
+    : bag.depth_cm;
 
   // Usable volume calculation
-  const rawVolL = (activeBag.length_cm * activeBag.width_cm * effectiveDepthCm) / 1000.0;
-  const bevelLossL = activeBag.corner_radius_cm > 0
-    ? ((4.0 - Math.PI) * Math.pow(activeBag.corner_radius_cm, 2) * effectiveDepthCm) / 1000.0
+  const rawVolL = (bag.length_cm * bag.width_cm * effectiveDepthCm) / 1000.0;
+  const bevelLossL = bag.corner_radius_cm > 0
+    ? ((4.0 - Math.PI) * Math.pow(bag.corner_radius_cm, 2) * effectiveDepthCm) / 1000.0
     : 0;
-  const taperFactor = (1.0 + Math.max(0.5, Math.min(1.0, activeBag.taper_ratio))) / 2.0;
+  const taperFactor = (1.0 + Math.max(0.5, Math.min(1.0, bag.taper_ratio))) / 2.0;
   const usableCapacityL = Math.max(0, (rawVolL - bevelLossL) * taperFactor);
 
   // Volume metrics
-  const estimatedPackedVolL = 38.4; // Calibrated model matching design target
-  const volumeUtilizationPct = 91; // Design target: 91%
+  const estimatedPackedVolL = useMemo(() => {
+    const sumCm3 = packedItems.reduce((acc, it) => {
+      const vol = (it.length_cm || 12) * (it.width_cm || 12) * (it.depth_cm || 4);
+      const comp = it.compressibility_factor || 1.0;
+      return acc + vol * comp;
+    }, 0);
+    return Math.max(0.5, Number((sumCm3 / 1000.0).toFixed(1)));
+  }, [packedItems]);
+
+  const volumeUtilizationPct = usableCapacityL > 0
+    ? Math.min(100, Math.round((estimatedPackedVolL / usableCapacityL) * 100))
+    : 0;
   const totalGrossKg = totalMassG / 1000.0;
 
   // Airline depth comparison
@@ -88,10 +112,129 @@ export const MyPackingView: React.FC<Props> = ({
   const toiletriesCount = items.filter((i) => i.category === 'Toiletries').length;
   const footwearCount = items.filter((i) => i.category === 'Footwear').length;
 
+  // Active subcontainers assigned to this luggage
+  const activeCubes = useMemo(() => {
+    return cubes.filter((c) => !c.luggage_shell_id || c.luggage_shell_id === bag.id);
+  }, [cubes, bag.id]);
+
+  const cubeMap = useMemo(() => {
+    const map = new Map<string, SubContainer>();
+    activeCubes.forEach((c) => map.set(c.id, c));
+    return map;
+  }, [activeCubes]);
+
+  // Specific item classifications for dynamic overhead compartmentalization
+  const laptopItems = useMemo(() => {
+    return packedItems.filter((it) => {
+      const name = it.name.toLowerCase();
+      return it.category === 'Tech' && (name.includes('laptop') || name.includes('macbook') || name.includes('tablet') || name.includes('ipad') || name.includes('notebook'));
+    });
+  }, [packedItems]);
+
+  const liquidItems = useMemo(() => {
+    return packedItems.filter((it) => {
+      const name = it.name.toLowerCase();
+      return it.is_liquid || name.includes('liquid') || name.includes('shampoo') || name.includes('lotion') || name.includes('soap') || name.includes('toiletr');
+    });
+  }, [packedItems]);
+
+  const footwearItems = useMemo(() => {
+    return packedItems.filter((it) => {
+      const name = it.name.toLowerCase();
+      return it.category === 'Footwear' || name.includes('shoe') || name.includes('boot') || name.includes('sneaker') || name.includes('sandal');
+    });
+  }, [packedItems]);
+
+  const loosePackedItems = useMemo(() => {
+    return packedItems.filter((it) => !it.sub_container_id);
+  }, [packedItems]);
+
   // 3D Center of Mass
-  const comY = 7.2;
-  const comX = 0.4;
-  const comZ = 22.8;
+  const dynamicCom = useMemo(() => {
+    if (packedItems.length === 0) {
+      return {
+        x: 0.0,
+        y: Number((effectiveDepthCm * 0.3).toFixed(1)),
+        z: Number((bag.length_cm * 0.4).toFixed(1)),
+        isSpineFlush: true,
+        isLaterallyBalanced: true,
+        isLowCenter: true,
+      };
+    }
+    let sumX = 0, sumY = 0, sumZ = 0, totalW = 0;
+    for (const it of packedItems) {
+      const px = it.pos_x ?? 0;
+      let py = it.pos_y;
+      let pz = it.pos_z;
+
+      // If item is assigned to a cube, derive physical coordinates from the cube's designated zone
+      if (py === undefined || pz === undefined) {
+        if (it.sub_container_id && cubeMap.has(it.sub_container_id)) {
+          const cube = cubeMap.get(it.sub_container_id)!;
+          switch (cube.zone_layer) {
+            case 'Spine Bottom':
+              py = effectiveDepthCm * 0.18;
+              pz = bag.length_cm * 0.20;
+              break;
+            case 'Spine Mid':
+              py = effectiveDepthCm * 0.22;
+              pz = bag.length_cm * 0.50;
+              break;
+            case 'Spine Top':
+              py = effectiveDepthCm * 0.25;
+              pz = bag.length_cm * 0.78;
+              break;
+            case 'Outer Lid':
+              py = effectiveDepthCm * 0.78;
+              pz = bag.length_cm * 0.50;
+              break;
+            case 'Quick Access':
+              py = effectiveDepthCm * 0.72;
+              pz = bag.length_cm * 0.85;
+              break;
+            default:
+              py = effectiveDepthCm * 0.30;
+              pz = bag.length_cm * 0.50;
+          }
+        } else {
+          // Heuristic default based on item category
+          if (it.category === 'Tech') {
+            py = effectiveDepthCm * 0.18;
+            pz = bag.length_cm * 0.50;
+          } else if (it.category === 'Footwear') {
+            py = effectiveDepthCm * 0.25;
+            pz = bag.length_cm * 0.15;
+          } else if (it.is_liquid || it.category === 'Toiletries') {
+            py = effectiveDepthCm * 0.65;
+            pz = bag.length_cm * 0.85;
+          } else {
+            py = effectiveDepthCm * 0.40;
+            pz = bag.length_cm * 0.50;
+          }
+        }
+      }
+
+      sumX += it.weight_g * px;
+      sumY += it.weight_g * py;
+      sumZ += it.weight_g * pz;
+      totalW += it.weight_g;
+    }
+    const cX = Number((sumX / totalW).toFixed(1));
+    const cY = Number((sumY / totalW).toFixed(1));
+    const cZ = Number((sumZ / totalW).toFixed(1));
+    return {
+      x: cX,
+      y: cY,
+      z: cZ,
+      isSpineFlush: cY <= effectiveDepthCm * 0.40,
+      isLaterallyBalanced: Math.abs(cX) <= 0.15 * bag.width_cm,
+      isLowCenter: cZ <= 0.60 * bag.length_cm,
+    };
+  }, [packedItems, effectiveDepthCm, bag.length_cm, bag.width_cm, cubeMap]);
+
+  const comX = dynamicCom.x;
+  const comY = dynamicCom.y;
+  const comZ = dynamicCom.z;
 
   const formatWeight = (g: number) => {
     if (unitSystem === 'metric') return `${g.toLocaleString()} g`;
@@ -109,18 +252,21 @@ export const MyPackingView: React.FC<Props> = ({
     const newItem: InventoryItem = {
       id: `item-${Date.now()}`,
       name: newItemName.trim(),
+      brand: selectedCatalogProduct?.brand,
       category: newItemCategory,
       weight_g: Number(newItemWeight),
-      length_cm: 20.0,
-      width_cm: 15.0,
-      depth_cm: 5.0,
-      compressibility_factor: 1.0,
-      is_liquid: false,
-      liquid_volume_ml: 0,
-      monetary_value: 50,
+      length_cm: selectedCatalogProduct?.length_cm || 20.0,
+      width_cm: selectedCatalogProduct?.width_cm || 15.0,
+      depth_cm: selectedCatalogProduct?.depth_cm || 5.0,
+      compressibility_factor: selectedCatalogProduct?.compressibility_factor || (newItemCategory === 'Clothing' ? 0.6 : 1.0),
+      is_liquid: selectedCatalogProduct?.is_liquid || false,
+      liquid_volume_ml: selectedCatalogProduct?.liquid_volume_ml || 0,
+      is_battery: selectedCatalogProduct?.is_battery || false,
+      battery_wh: selectedCatalogProduct?.battery_wh || 0,
+      monetary_value: selectedCatalogProduct?.monetary_value || 50,
       currency: 'USD',
       readiness_state: 'Packed',
-      tags: 'user-added',
+      tags: selectedCatalogProduct?.tags || 'user-added',
       pos_x: 0,
       pos_y: 5.0,
       pos_z: 20.0,
@@ -130,6 +276,7 @@ export const MyPackingView: React.FC<Props> = ({
     onAddItem(newItem);
     setIsAddModalOpen(false);
     setNewItemName('');
+    setSelectedCatalogProduct(null);
   };
 
   return (
@@ -143,9 +290,9 @@ export const MyPackingView: React.FC<Props> = ({
           <div className="bag-detail-column">
             <span className="active-bag-pill">ACTIVE BAG</span>
             <div className="bag-title-row">
-              <h2 className="bag-name">{activeBag.name}</h2>
+              <h2 className="bag-name">{bag.name}</h2>
               <span className="bag-dimension-tag">
-                {activeBag.length_cm.toFixed(1)} × {activeBag.width_cm.toFixed(1)} × {effectiveDepthCm.toFixed(1)} cm
+                {bag.length_cm.toFixed(1)} × {bag.width_cm.toFixed(1)} × {effectiveDepthCm.toFixed(1)} cm
               </span>
               <span className="depth-alert-badge">
                 Depth Alert: {depthDiff > 0 ? `+${depthDiff.toFixed(1)} cm` : `${depthDiff.toFixed(1)} cm`}
@@ -273,119 +420,178 @@ export const MyPackingView: React.FC<Props> = ({
             {/* TAB 1: TOP VIEW INTERIOR SCHEMATIC BLUEPRINT */}
             {activeTab === 'Top View' && (
               <div className="schematic-blueprint-canvas">
-                {/* 1. LAPTOP SLEEVE */}
-                <div className="schematic-compartment laptop-sleeve">
-                  <div className="schematic-icon-squircle">
-                    <Laptop size={15} />
-                  </div>
-                  <div className="schematic-text-block">
-                    <div className="schematic-title">16" Laptop &amp; Tablet Sleeve</div>
-                    <div className="schematic-sub">MacBook Pro 16" (2.14 kg) · Roost V3 Stand</div>
-                  </div>
-                </div>
-
-                {/* 2. SPLIT QUICK ACCESS ROW: LIQUIDS & SUNGLASSES */}
-                <div className="schematic-row-split">
-                  {/* TSA Liquids */}
-                  <div className="schematic-amber-box">
-                    <div className="amber-box-header">
-                      <div className="amber-box-title-group">
-                        <FlaskConical size={13} className="text-amber" />
-                        <span className="amber-title">TSA Liquids ...</span>
+                {packedItems.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '2rem 1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'var(--primary-container, #e0f2fe)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary, #0284c7)' }}>
+                      <Luggage size={22} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-dark)' }}>
+                        {bag.name} is Currently Empty
                       </div>
-                      <span className="badge-amber-pill">3-1-1 Approved</span>
-                    </div>
-                    <div className="amber-box-desc">Matador bottles (3x 100ml shampoo), ...</div>
-                    <div className="amber-box-footer">
-                      <span>Top quick-reach cavity</span>
-                      <span className="amber-weight">780 g</span>
-                    </div>
-                  </div>
-
-                  {/* Sunglasses */}
-                  <div className="schematic-amber-box compact">
-                    <div className="amber-box-header">
-                      <div className="amber-box-title-group">
-                        <Glasses size={13} className="text-amber" />
-                        <span className="amber-title">Sunglas...</span>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        Usable volume: {usableCapacityL.toFixed(1)} L · Dimensions: {bag.length_cm} × {bag.width_cm} × {effectiveDepthCm.toFixed(1)} cm
                       </div>
-                      <span className="badge-amber-pill">Top Lid</span>
                     </div>
-                    <div className="amber-box-desc">Hardcase polarized shad...</div>
-                    <div className="amber-box-footer">
-                      <span>Hardcase bay</span>
-                      <span className="amber-weight">110 g</span>
-                    </div>
+                    <button
+                      onClick={onAutoPack}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '0.45rem 0.85rem',
+                        borderRadius: '6px',
+                        background: 'var(--primary, #0284c7)',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        marginTop: '0.25rem',
+                      }}
+                    >
+                      <Sparkles size={13} />
+                      <span>Auto-Pack Staged Gear ({items.filter(i => i.readiness_state === 'Staged').length} Available)</span>
+                    </button>
                   </div>
-                </div>
-
-                {/* 3. CLOTHING COMPRESSION CUBE L */}
-                <div className="schematic-blue-box">
-                  <div className="blue-box-header">
-                    <div className="blue-title-group">
-                      <span className="dot-indicator blue" />
-                      <span className="blue-title">Clothing Compression Cube L</span>
-                    </div>
-                    <div className="blue-badges-group">
-                      <span className="badge-blue-pill">1.42 kg · 4.2 L</span>
-                      <span className="badge-gray-pill">Center Layer</span>
-                    </div>
-                  </div>
-                  <div className="blue-box-desc">
-                    6x Merino Shirts, 2x Chinos (Outlier Dungarees), Arc'teryx Atom L...
-                  </div>
-                  <div className="blue-box-footer">
-                    <span className="compression-ratio-text">✛ 88% compression ratio</span>
-                    <span className="depth-dim-text">Depth: 11.2 cm</span>
-                  </div>
-                </div>
-
-                {/* 4. ELECTRONICS & TECH BAY */}
-                <div className="schematic-green-box">
-                  <div className="green-box-header">
-                    <div className="green-title-group">
-                      <span className="dot-indicator green" />
-                      <span className="green-title">Electronics &amp; Tech Bay</span>
-                    </div>
-                    <div className="green-badges-group">
-                      <span className="badge-green-pill">1.85 kg · Dense</span>
-                      <span className="badge-emerald-pill">Heavy Base</span>
-                    </div>
-                  </div>
-                  <div className="green-box-desc">
-                    140W GaN Fast Charger, 24k mAh Powerbank, Sony WH-1000X...
-                  </div>
-                  <div className="green-box-footer">
-                    <span className="balance-low-text">Spine-centered low center-of-gravity</span>
-                    <span className="load-optimal-text">Load Balance: Optimal</span>
-                  </div>
-                </div>
-
-                {/* 5. BOTTOM ROW: RUNNING SHOES + FREE SPACE BUFFER */}
-                <div className="schematic-row-split">
-                  {/* Shoes */}
-                  <div className="schematic-white-box">
-                    <div className="white-box-header">
-                      <div className="white-title-group">
-                        <Footprints size={14} className="text-secondary" />
-                        <span className="white-title">Trail Running Shoes (US 11)</span>
+                ) : (
+                  <>
+                    {/* 1. LAPTOP SLEEVE */}
+                    {laptopItems.length > 0 && (
+                      <div className="schematic-compartment laptop-sleeve">
+                        <div className="schematic-icon-squircle">
+                          <Laptop size={15} />
+                        </div>
+                        <div className="schematic-text-block" style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span className="schematic-title">Laptop &amp; Tech Spine Sleeve</span>
+                            <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                              {formatWeight(laptopItems.reduce((acc, it) => acc + it.weight_g, 0))}
+                            </span>
+                          </div>
+                          <div className="schematic-sub">
+                            {laptopItems.map((it) => `${it.name} (${formatWeight(it.weight_g)})`).join(' · ')}
+                          </div>
+                        </div>
                       </div>
-                      <span className="white-weight">680 g</span>
-                    </div>
-                    <div className="white-box-desc">In shoe bags along bottom curved floor</div>
-                    <div className="white-box-tags">
-                      <span className="tag-pill">Bottom base perimeter</span>
-                      <span className="tag-pill">Bottom Floor</span>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Free Space Buffer */}
-                  <div className="schematic-teal-dashed-box">
-                    <span className="buffer-tag">FREE SPACE BUFFER</span>
-                    <span className="buffer-amount">3.6 L Available</span>
-                    <span className="buffer-label">Souvenirs / Jacket</span>
-                  </div>
-                </div>
+                    {/* 2. SPLIT QUICK ACCESS ROW: LIQUIDS & QUICK ACCESS */}
+                    {(liquidItems.length > 0 || loosePackedItems.some((i) => i.category === 'Toiletries')) && (
+                      <div className="schematic-row-split">
+                        <div className="schematic-amber-box">
+                          <div className="amber-box-header">
+                            <div className="amber-box-title-group">
+                              <FlaskConical size={13} className="text-amber" />
+                              <span className="amber-title">TSA Liquids Pouch</span>
+                            </div>
+                            <span className="badge-amber-pill">
+                              {liquidItems.every((it) => (it.liquid_volume_ml || 0) <= 100) ? '3-1-1 Approved' : 'Hazmat Check'}
+                            </span>
+                          </div>
+                          <div className="amber-box-desc">
+                            {liquidItems.map((it) => it.name).join(', ') || 'Assigned liquids pouch'}
+                          </div>
+                          <div className="amber-box-footer">
+                            <span>Top quick-reach cavity</span>
+                            <span className="amber-weight">{formatWeight(liquidItems.reduce((acc, it) => acc + it.weight_g, 0))}</span>
+                          </div>
+                        </div>
+
+                        <div className="schematic-amber-box compact">
+                          <div className="amber-box-header">
+                            <div className="amber-box-title-group">
+                              <Glasses size={13} className="text-amber" />
+                              <span className="amber-title">Quick Access Lid</span>
+                            </div>
+                            <span className="badge-amber-pill">Top Lid</span>
+                          </div>
+                          <div className="amber-box-desc">
+                            {loosePackedItems.filter((i) => !laptopItems.includes(i) && !liquidItems.includes(i)).slice(0, 2).map((i) => i.name).join(', ') || 'Passport, shades, keys'}
+                          </div>
+                          <div className="amber-box-footer">
+                            <span>Front zipper bay</span>
+                            <span className="amber-weight">
+                              {formatWeight(loosePackedItems.filter((i) => !laptopItems.includes(i) && !liquidItems.includes(i)).slice(0, 2).reduce((acc, it) => acc + it.weight_g, 0))}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. SUB-CONTAINER / COMPRESSION CUBES (REAL USER CUBES) */}
+                    {activeCubes.map((c, idx) => {
+                      const cubeItems = packedItems.filter((it) => it.sub_container_id === c.id);
+                      const cubeItemsWeight = cubeItems.reduce((acc, it) => acc + it.weight_g, 0);
+                      const totalCubeG = c.tare_weight_g + cubeItemsWeight;
+                      const rawL = (c.length_cm * c.width_cm * c.depth_cm) / 1000.0;
+                      const compL = (rawL * Math.max(0.2, Math.min(1.0, c.compression_ratio))).toFixed(1);
+
+                      const isGreen = idx % 2 === 1;
+                      const boxClass = isGreen ? 'schematic-green-box' : 'schematic-blue-box';
+                      const titleClass = isGreen ? 'green-title' : 'blue-title';
+                      const dotClass = isGreen ? 'dot-indicator green' : 'dot-indicator blue';
+                      const badgeClass = isGreen ? 'badge-green-pill' : 'badge-blue-pill';
+
+                      return (
+                        <div key={c.id} className={boxClass}>
+                          <div className={isGreen ? 'green-box-header' : 'blue-box-header'}>
+                            <div className={isGreen ? 'green-title-group' : 'blue-title-group'}>
+                              <span className={dotClass} />
+                              <span className={titleClass}>{c.name}</span>
+                            </div>
+                            <div className={isGreen ? 'green-badges-group' : 'blue-badges-group'}>
+                              <span className={badgeClass}>{formatWeight(totalCubeG)} · {compL} L</span>
+                              <span className="badge-gray-pill">{c.zone_layer}</span>
+                            </div>
+                          </div>
+                          <div className={isGreen ? 'green-box-desc' : 'blue-box-desc'}>
+                            {cubeItems.length > 0
+                              ? cubeItems.map((it) => it.name).join(', ')
+                              : 'Empty container — items can be assigned in Gear Checklist'}
+                          </div>
+                          <div className={isGreen ? 'green-box-footer' : 'blue-box-footer'}>
+                            <span className="compression-ratio-text">✛ {Math.round(c.compression_ratio * 100)}% compression ratio</span>
+                            <span className="depth-dim-text">{c.length_cm} × {c.width_cm} × {c.depth_cm} cm</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* 4. FOOTWEAR BAY */}
+                    {footwearItems.length > 0 && (
+                      <div className="schematic-white-box">
+                        <div className="white-box-header">
+                          <div className="white-title-group">
+                            <Footprints size={14} className="text-secondary" />
+                            <span className="white-title">Footwear Bay</span>
+                          </div>
+                          <span className="white-weight">{formatWeight(footwearItems.reduce((acc, it) => acc + it.weight_g, 0))}</span>
+                        </div>
+                        <div className="white-box-desc">
+                          {footwearItems.map((it) => `${it.name} (${formatWeight(it.weight_g)})`).join(', ')}
+                        </div>
+                        <div className="white-box-tags">
+                          <span className="tag-pill">Bottom base perimeter</span>
+                          <span className="tag-pill">Spine Bottom</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 5. FREE SPACE BUFFER (REAL DYNAMIC CALCULATION) */}
+                    <div className="schematic-teal-dashed-box">
+                      <span className="buffer-tag">FREE SPACE BUFFER</span>
+                      <span className="buffer-amount">
+                        {Math.max(0, usableCapacityL - estimatedPackedVolL).toFixed(1)} L Available
+                      </span>
+                      <span className="buffer-label">
+                        {usableCapacityL - estimatedPackedVolL > 0
+                          ? `Ready for expansion (${((Math.max(0, usableCapacityL - estimatedPackedVolL) / usableCapacityL) * 100).toFixed(0)}% reserve)`
+                          : 'Bag packed to maximum volume capacity'}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -396,7 +602,7 @@ export const MyPackingView: React.FC<Props> = ({
                   <span>Bag Depth Cross-Section (Depth: {effectiveDepthCm.toFixed(1)} cm)</span>
                   <button onClick={onToggleExpand} className="expand-toggle-link">
                     <Maximize2 size={12} />
-                    <span>{activeBag.is_expanded ? 'Expanded' : 'Unexpanded'}</span>
+                    <span>{bag.is_expanded ? 'Expanded' : 'Unexpanded'}</span>
                   </button>
                 </div>
                 <div className="side-svg-frame">
@@ -404,31 +610,68 @@ export const MyPackingView: React.FC<Props> = ({
                     {/* Spine Panel */}
                     <line x1="30" y1="20" x2="30" y2="120" stroke="#0f172a" strokeWidth="5" strokeLinecap="round" />
                     <text x="30" y="135" fontSize="10" fontWeight="700" textAnchor="middle" fill="#0f172a">Spine Panel</text>
+                    
                     {/* Shell Contour */}
-                    <path
-                      d={`M 32 20 L ${activeBag.is_expanded ? '290' : '240'} 35 L ${activeBag.is_expanded ? '290' : '240'} 105 L 32 120 Z`}
-                      fill="rgba(14, 165, 233, 0.08)"
-                      stroke="#0284c7"
-                      strokeWidth="2"
-                    />
-                    {/* Heavy Spine Layer */}
-                    <rect x="36" y="24" width="50" height="92" rx="4" fill="rgba(22, 163, 74, 0.25)" stroke="#16a34a" />
-                    <text x="61" y="74" fontSize="9" fontWeight="700" textAnchor="middle" fill="#166534">Tech Bay</text>
-                    {/* Mid Layer */}
-                    <rect x="92" y="27" width="80" height="86" rx="4" fill="rgba(14, 165, 233, 0.2)" stroke="#0284c7" />
-                    <text x="132" y="74" fontSize="9" fontWeight="700" textAnchor="middle" fill="#0369a1">Clothing Cube</text>
-                    {/* Outer Lid */}
-                    <rect x="178" y="31" width="50" height="78" rx="4" fill="rgba(245, 158, 11, 0.2)" stroke="#f59e0b" />
-                    <text x="203" y="74" fontSize="9" fontWeight="700" textAnchor="middle" fill="#92400e">Quick Reach</text>
-                    {/* COM Coordinate */}
-                    <circle cx="105" cy="70" r="7" fill="#dc2626" />
-                    <circle cx="105" cy="70" r="14" fill="none" stroke="#dc2626" strokeWidth="1.5" strokeDasharray="3,3" />
-                    <text x="105" y="94" fontSize="9" fontWeight="700" textAnchor="middle" fill="#dc2626">COM (Y = 7.2 cm)</text>
+                    {(() => {
+                      const shellWidth = bag.is_expanded ? 280 : 230;
+                      const comSvgX = 30 + Math.min(shellWidth, Math.max(12, (comY / effectiveDepthCm) * shellWidth));
+                      const leverageThresholdX = 30 + (0.40 * shellWidth);
+
+                      return (
+                        <>
+                          <path
+                            d={`M 32 20 L ${30 + shellWidth} 35 L ${30 + shellWidth} 105 L 32 120 Z`}
+                            fill="rgba(14, 165, 233, 0.08)"
+                            stroke="#0284c7"
+                            strokeWidth="2"
+                          />
+                          
+                          {/* 40% Leverage Threshold Guide Line */}
+                          <line
+                            x1={leverageThresholdX}
+                            y1="22"
+                            x2={leverageThresholdX}
+                            y2="118"
+                            stroke="rgba(220, 38, 38, 0.35)"
+                            strokeWidth="1.5"
+                            strokeDasharray="4,3"
+                          />
+                          <text x={leverageThresholdX} y="18" fontSize="8" fontWeight="600" textAnchor="middle" fill="#dc2626">
+                            40% Leverage Threshold
+                          </text>
+
+                          {/* Dynamic Depth Strata */}
+                          <rect x="34" y="24" width={(shellWidth * 0.35)} height="92" rx="4" fill="rgba(22, 163, 74, 0.2)" stroke="#16a34a" />
+                          <text x={34 + (shellWidth * 0.175)} y="74" fontSize="9" fontWeight="700" textAnchor="middle" fill="#166534">
+                            Spine Core
+                          </text>
+
+                          <rect x={34 + (shellWidth * 0.38)} y="27" width={(shellWidth * 0.36)} height="86" rx="4" fill="rgba(14, 165, 233, 0.18)" stroke="#0284c7" />
+                          <text x={34 + (shellWidth * 0.56)} y="74" fontSize="9" fontWeight="700" textAnchor="middle" fill="#0369a1">
+                            Mid Cubes
+                          </text>
+
+                          <rect x={34 + (shellWidth * 0.76)} y="31" width={(shellWidth * 0.22)} height="78" rx="4" fill="rgba(245, 158, 11, 0.2)" stroke="#f59e0b" />
+                          <text x={34 + (shellWidth * 0.87)} y="74" fontSize="8.5" fontWeight="700" textAnchor="middle" fill="#92400e">
+                            Outer Lid
+                          </text>
+
+                          {/* DYNAMIC Center of Mass Coordinate Indicator */}
+                          <circle cx={comSvgX} cy="70" r="7" fill={dynamicCom.isSpineFlush ? "#16a34a" : "#dc2626"} />
+                          <circle cx={comSvgX} cy="70" r="14" fill="none" stroke={dynamicCom.isSpineFlush ? "#16a34a" : "#dc2626"} strokeWidth="1.5" strokeDasharray="3,3" />
+                          <text x={comSvgX} y="94" fontSize="9" fontWeight="700" textAnchor="middle" fill={dynamicCom.isSpineFlush ? "#166534" : "#dc2626"}>
+                            COM (Y = {comY.toFixed(1)} cm)
+                          </text>
+                        </>
+                      );
+                    })()}
                   </svg>
                 </div>
                 <div className="side-canvas-footer">
                   <span>Spine Flush (0 cm)</span>
-                  <span>Center of Gravity (Y = {comY} cm)</span>
+                  <span style={{ fontWeight: 700, color: dynamicCom.isSpineFlush ? '#16a34a' : '#dc2626' }}>
+                    Center of Gravity (Y = {comY.toFixed(1)} cm · {((comY / effectiveDepthCm) * 100).toFixed(0)}%)
+                  </span>
                   <span>Outer Lid ({effectiveDepthCm.toFixed(1)} cm)</span>
                 </div>
               </div>
@@ -442,33 +685,62 @@ export const MyPackingView: React.FC<Props> = ({
                     <Compass size={16} className="text-blue" />
                     <span className="balance-title">3D Ergonomic Center of Gravity Centroid</span>
                   </div>
-                  <span className="status-badge-green">100% Balanced</span>
+                  <span className={dynamicCom.isSpineFlush && dynamicCom.isLaterallyBalanced && dynamicCom.isLowCenter ? "status-badge-green" : "status-badge-amber"}>
+                    {dynamicCom.isSpineFlush && dynamicCom.isLaterallyBalanced && dynamicCom.isLowCenter ? "100% Balanced" : "Imbalance Detected"}
+                  </span>
                 </div>
                 <div className="balance-isometric-frame">
-                  <svg width="240" height="130" viewBox="0 0 240 130">
-                    <polygon points="120,15 180,45 120,75 60,45" fill="rgba(14, 165, 233, 0.1)" stroke="#94a3b8" strokeWidth="1.5" />
-                    <polygon points="60,45 120,75 120,115 60,85" fill="rgba(14, 165, 233, 0.15)" stroke="#94a3b8" strokeWidth="1.5" />
-                    <polygon points="120,75 180,45 180,85 120,115" fill="rgba(14, 165, 233, 0.2)" stroke="#94a3b8" strokeWidth="1.5" />
-                    <circle cx="120" cy="70" r="7" fill="#ef4444" />
-                    <circle cx="120" cy="70" r="14" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,3" />
-                    <text x="120" y="92" textAnchor="middle" fontSize="10" fontWeight="700" fill="#dc2626">Centroid ({comX}, {comY}, {comZ}) cm</text>
-                  </svg>
+                  {(() => {
+                    const w = bag.width_cm || 35;
+                    const d = effectiveDepthCm || 22;
+                    const h = bag.length_cm || 55;
+                    const isoX = 120 + ((comX / (w / 2)) * 35) - (((comY - d / 2) / d) * 20);
+                    const isoY = 65 + (((comY - d / 2) / d) * 15) - (((comZ - h / 2) / h) * 30);
+                    const isOptimal = dynamicCom.isSpineFlush && dynamicCom.isLaterallyBalanced && dynamicCom.isLowCenter;
+
+                    return (
+                      <svg width="240" height="130" viewBox="0 0 240 130">
+                        <polygon points="120,15 180,45 120,75 60,45" fill="rgba(14, 165, 233, 0.1)" stroke="#94a3b8" strokeWidth="1.5" />
+                        <polygon points="60,45 120,75 120,115 60,85" fill="rgba(14, 165, 233, 0.15)" stroke="#94a3b8" strokeWidth="1.5" />
+                        <polygon points="120,75 180,45 180,85 120,115" fill="rgba(14, 165, 233, 0.2)" stroke="#94a3b8" strokeWidth="1.5" />
+                        
+                        {/* Dynamic Centroid Marker */}
+                        <circle cx={isoX} cy={isoY} r={7} fill={isOptimal ? "#16a34a" : "#ef4444"} />
+                        <circle cx={isoX} cy={isoY} r={14} fill="none" stroke={isOptimal ? "#16a34a" : "#ef4444"} strokeWidth="1.5" strokeDasharray="3,3" />
+                        <text x={isoX} y={isoY + 20} textAnchor="middle" fontSize="10" fontWeight="700" fill={isOptimal ? "#166534" : "#dc2626"}>
+                          Centroid ({comX.toFixed(1)}, {comY.toFixed(1)}, {comZ.toFixed(1)}) cm
+                        </text>
+                      </svg>
+                    );
+                  })()}
                 </div>
                 <div className="balance-metrics-grid">
                   <div className="balance-stat-card">
                     <span className="stat-label">SPINE LEVERAGE</span>
-                    <span className="stat-val optimal">28% from spine</span>
-                    <span className="stat-sub">Optimal lumbar support</span>
+                    <span className={`stat-val ${dynamicCom.isSpineFlush ? 'optimal' : 'warning'}`}>
+                      {((comY / effectiveDepthCm) * 100).toFixed(0)}% from spine
+                    </span>
+                    <span className="stat-sub">
+                      {dynamicCom.isSpineFlush ? 'Optimal lumbar support' : 'High leverage alert'}
+                    </span>
                   </div>
                   <div className="balance-stat-card">
                     <span className="stat-label">LATERAL BALANCE</span>
-                    <span className="stat-val optimal">0.4 cm Centered</span>
-                    <span className="stat-sub">Zero spinal curvature</span>
+                    <span className={`stat-val ${dynamicCom.isLaterallyBalanced ? 'optimal' : 'warning'}`}>
+                      {Math.abs(comX).toFixed(1)} cm {comX >= 0 ? 'Right' : 'Left'}
+                    </span>
+                    <span className="stat-sub">
+                      {dynamicCom.isLaterallyBalanced ? 'Zero spinal curvature' : 'Lateral strain warning'}
+                    </span>
                   </div>
                   <div className="balance-stat-card">
                     <span className="stat-label">VERTICAL STABILITY</span>
-                    <span className="stat-val optimal">Z = 22.8 cm</span>
-                    <span className="stat-sub">Low center of mass</span>
+                    <span className={`stat-val ${dynamicCom.isLowCenter ? 'optimal' : 'warning'}`}>
+                      Z = {comZ.toFixed(1)} cm
+                    </span>
+                    <span className="stat-sub">
+                      {dynamicCom.isLowCenter ? 'Low center of mass' : 'Top-heavy tipping risk'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -478,10 +750,16 @@ export const MyPackingView: React.FC<Props> = ({
           {/* Ergonomics Status Bar */}
           <div className="ergonomics-status-bar">
             <div className="ergo-title-group">
-              <CheckCircle2 size={16} className="text-green" />
-              <span className="ergo-title">Spine Flush Ergonomics: Heavy gear aligned along back panel</span>
+              <CheckCircle2 size={16} className={dynamicCom.isSpineFlush ? "text-green" : "text-amber"} />
+              <span className="ergo-title">
+                {dynamicCom.isSpineFlush
+                  ? 'Spine Flush Ergonomics: Heavy gear aligned along back panel'
+                  : 'High Leverage Warning: Reposition dense items toward the spine panel'}
+              </span>
             </div>
-            <span className="status-badge-green">100% Balanced</span>
+            <span className={dynamicCom.isSpineFlush && dynamicCom.isLaterallyBalanced ? "status-badge-green" : "status-badge-amber"}>
+              {dynamicCom.isSpineFlush && dynamicCom.isLaterallyBalanced ? "100% Balanced" : "Strain Warning"}
+            </span>
           </div>
         </div>
 
@@ -698,6 +976,10 @@ export const MyPackingView: React.FC<Props> = ({
               <h3>Add Gear Item to Checklist</h3>
               <button className="close-btn" onClick={() => setIsAddModalOpen(false)}>×</button>
             </div>
+            
+            {/* SDLC Instant Product Catalog Autocomplete (Local-First + UPCitemdb) */}
+            <ProductSearchAutocomplete onSelectProduct={handleSelectCatalogProduct} unitSystem={unitSystem} />
+
             <form onSubmit={handleCreateItem}>
               <div className="form-group">
                 <label>Item Name</label>

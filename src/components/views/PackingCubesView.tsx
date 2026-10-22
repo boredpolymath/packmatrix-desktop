@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { SubContainer, InventoryItem, LuggageShell, ZoneLayerTag, UnitSystem } from '../../types';
+import { DEFAULT_FALLBACK_BAG } from '../../types';
 import { Box, Plus, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -37,13 +38,15 @@ export const PackingCubesView: React.FC<Props> = ({
   const [compRatio, setCompRatio] = useState(0.8);
   const [zone, setZone] = useState<ZoneLayerTag>('Spine Mid');
 
+  const bag = activeBag || DEFAULT_FALLBACK_BAG;
+
   // Compute total compressed volume of all subcontainers assigned to active bag
   const totalSubContainerVolL = cubes.reduce((acc, c) => {
     const rawL = (c.length_cm * c.width_cm * c.depth_cm) / 1000.0;
     return acc + (rawL * Math.max(0.2, Math.min(1.0, c.compression_ratio)));
   }, 0);
 
-  const usableBagVolL = activeBag.nominal_volume_l;
+  const usableBagVolL = bag.nominal_volume_l;
   const isOverflowing = totalSubContainerVolL > usableBagVolL;
   const overflowL = isOverflowing ? totalSubContainerVolL - usableBagVolL : 0;
   const utilizationPct = usableBagVolL > 0 ? (totalSubContainerVolL / usableBagVolL) * 100 : 0;
@@ -55,7 +58,7 @@ export const PackingCubesView: React.FC<Props> = ({
     const rawL = (lengthCm * widthCm * depthCm) / 1000.0;
     const newCube: SubContainer = {
       id: `cube-${Date.now()}`,
-      luggage_shell_id: activeBag.id,
+      luggage_shell_id: bag.id,
       name: newCubeName.trim(),
       container_type: newCubeType,
       length_cm: Number(lengthCm),
@@ -86,7 +89,7 @@ export const PackingCubesView: React.FC<Props> = ({
             Packing Organizer Cubes
           </h2>
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            Organize clothes, toiletries, and tech pouches into compressed compartments inside {activeBag.name}
+            Organize clothes, toiletries, and tech pouches into compressed compartments inside {bag.name}
           </p>
         </div>
         <button
@@ -322,10 +325,17 @@ export const PackingCubesView: React.FC<Props> = ({
         >
           <div
             style={{
-              background: 'var(--surface-card)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
+              color: 'var(--text-dark, #0f172a)',
+              border: '1px solid var(--border-medium, #cbd5e1)',
               borderRadius: '16px',
               width: '520px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               padding: '1.5rem',
+              boxShadow: 'var(--shadow-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.35))',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -443,10 +453,12 @@ export const PackingCubesView: React.FC<Props> = ({
                   style={{
                     padding: '0.5rem 0.9rem',
                     borderRadius: '6px',
-                    border: '1px solid var(--border-medium)',
-                    background: 'transparent',
+                    border: '1px solid var(--border-medium, #cbd5e1)',
+                    background: '#ffffff',
+                    color: 'var(--text-body, #334155)',
                     cursor: 'pointer',
                     fontSize: '12px',
+                    fontWeight: 600,
                   }}
                 >
                   Cancel
@@ -457,7 +469,7 @@ export const PackingCubesView: React.FC<Props> = ({
                     padding: '0.5rem 1.1rem',
                     borderRadius: '6px',
                     border: 'none',
-                    background: 'var(--primary)',
+                    background: 'var(--primary, #0284c7)',
                     color: '#ffffff',
                     fontWeight: 600,
                     cursor: 'pointer',

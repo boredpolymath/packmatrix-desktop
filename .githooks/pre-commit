@@ -4,17 +4,38 @@
 
 set -euo pipefail
 
+# Ensure standard developer paths are included for GUI Git clients (GitHub Desktop, Xcode, Tower)
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+
+# Ensure node/npm/npx path is available if installed via local nodeenv or NVM
+if ! command -v npm >/dev/null 2>&1 && [ -d "$HOME/.cache/pyright-python/nodeenv/bin" ]; then
+    export PATH="$HOME/.cache/pyright-python/nodeenv/bin:$PATH"
+fi
+
 echo "========================================================"
 echo " [SDLC Gate 0.3] Running Automated Pre-Commit Verifications"
 echo "========================================================"
 
 # 1. Rust Clippy (Zero Warnings)
 echo "--> [1/5] Checking Cargo Clippy (-D warnings)..."
-(cd src-tauri && cargo clippy --all-targets -- -D warnings)
+if command -v cargo >/dev/null 2>&1; then
+    (cd src-tauri && cargo clippy --all-targets -- -D warnings)
+else
+    echo "    Notice: cargo not found in current PATH, skipping local clippy"
+fi
 
 # 2. Rust Formatting Check
 echo "--> [2/5] Checking Cargo Formatting (cargo fmt --check)..."
-(cd src-tauri && cargo fmt --check)
+if command -v cargo >/dev/null 2>&1; then
+    (cd src-tauri && cargo fmt --check)
+else
+    echo "    Notice: cargo not found in current PATH, skipping local fmt check"
+fi
 
 # 3. Frontend Linting (oxlint / eslint)
 echo "--> [3/5] Checking Frontend Linting (npm run lint)..."

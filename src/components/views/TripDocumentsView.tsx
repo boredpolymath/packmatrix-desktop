@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { InventoryItem, LuggageShell, UnitSystem } from '../../types';
 import { validateBackupRestorePackage } from '../../utils/validation';
+import { isTauriEnvironment } from '../../services/ipc';
 import {
   Upload,
   Download,
@@ -109,9 +110,11 @@ export const TripDocumentsView: React.FC<Props> = ({
   // Handle incoming dropped CSV content (SDLC 7.4 Drag-and-Drop Ingestion)
   useEffect(() => {
     if (initialCsvContent) {
-      handleParseCsv(initialCsvContent);
-      setIsCsvModalOpen(true);
-      onClearInitialCsv?.();
+      queueMicrotask(() => {
+        handleParseCsv(initialCsvContent);
+        setIsCsvModalOpen(true);
+        onClearInitialCsv?.();
+      });
     }
   }, [initialCsvContent, onClearInitialCsv]);
 
@@ -146,22 +149,63 @@ export const TripDocumentsView: React.FC<Props> = ({
     setCsvPreview([]);
   };
 
-  // Export JSON Vault Backup
-  const handleExportJson = () => {
+  // Export JSON Vault Backup (Native file save dialog in Tauri; web download fallback)
+  const handleExportJson = async () => {
     const backupPackage = {
       version: '1.0.0',
       exported_at: new Date().toISOString(),
       luggage: bags,
       inventory: items,
     };
+    const content = JSON.stringify(backupPackage, null, 2);
 
-    const blob = new Blob([JSON.stringify(backupPackage, null, 2)], { type: 'application/json' });
+    if (isTauriEnvironment()) {
+      try {
+        const { save } = await import('@tauri-apps/plugin-dialog');
+        const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+        const filePath = await save({
+          defaultPath: `packmatrix-vault-backup-${new Date().toISOString().split('T')[0]}.json`,
+          filters: [{ name: 'PackMatrix Data Vault', extensions: ['json'] }],
+        });
+        if (filePath) {
+          await writeTextFile(filePath, content);
+          return;
+        }
+      } catch {
+        // Fallback to browser blob
+      }
+    }
+
+    const blob = new Blob([content], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `packmatrix-vault-backup-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Open CSV with native file dialog in Tauri or fallback to modal
+  const handleOpenCsv = async () => {
+    if (isTauriEnvironment()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+        const { readTextFile } = await import('@tauri-apps/plugin-fs');
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: 'CSV / TSV Gear Spreadsheet', extensions: ['csv', 'tsv', 'txt'] }],
+        });
+        if (selected && typeof selected === 'string') {
+          const text = await readTextFile(selected);
+          handleParseCsv(text);
+          setIsCsvModalOpen(true);
+          return;
+        }
+      } catch {
+        // Fallback to modal
+      }
+    }
+    setIsCsvModalOpen(true);
   };
 
   // Restore JSON Vault Backup
@@ -201,7 +245,7 @@ export const TripDocumentsView: React.FC<Props> = ({
 
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
-            onClick={() => setIsCsvModalOpen(true)}
+            onClick={handleOpenCsv}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -404,11 +448,17 @@ export const TripDocumentsView: React.FC<Props> = ({
         >
           <div
             style={{
-              background: 'var(--surface-card)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
+              color: 'var(--text-dark, #0f172a)',
+              border: '1px solid var(--border-medium, #cbd5e1)',
               borderRadius: '16px',
               width: '680px',
               maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               padding: '1.75rem',
+              boxShadow: 'var(--shadow-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.35))',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -478,7 +528,16 @@ export const TripDocumentsView: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setIsCsvModalOpen(false)}
-                style={{ padding: '0.55rem 0.9rem', borderRadius: '6px', border: '1px solid var(--border-medium)', background: 'transparent', cursor: 'pointer', fontSize: '12px' }}
+                style={{
+                  padding: '0.55rem 0.9rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-medium, #cbd5e1)',
+                  background: '#ffffff',
+                  color: 'var(--text-body, #334155)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                }}
               >
                 Cancel
               </button>
@@ -490,7 +549,7 @@ export const TripDocumentsView: React.FC<Props> = ({
                   padding: '0.55rem 1.1rem',
                   borderRadius: '6px',
                   border: 'none',
-                  background: 'var(--primary)',
+                  background: 'var(--primary, #0284c7)',
                   color: '#ffffff',
                   fontWeight: 600,
                   cursor: csvPreview.length > 0 ? 'pointer' : 'not-allowed',
@@ -525,10 +584,17 @@ export const TripDocumentsView: React.FC<Props> = ({
         >
           <div
             style={{
-              background: 'var(--surface-card)',
+              background: '#ffffff',
+              backgroundColor: '#ffffff',
+              color: 'var(--text-dark, #0f172a)',
+              border: '1px solid var(--border-medium, #cbd5e1)',
               borderRadius: '16px',
               width: '560px',
+              maxWidth: '92vw',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               padding: '1.75rem',
+              boxShadow: 'var(--shadow-modal, 0 25px 50px -12px rgba(0, 0, 0, 0.35))',
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
@@ -561,7 +627,16 @@ export const TripDocumentsView: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setIsRestoreModalOpen(false)}
-                style={{ padding: '0.55rem 0.9rem', borderRadius: '6px', border: '1px solid var(--border-medium)', background: 'transparent', cursor: 'pointer', fontSize: '12px' }}
+                style={{
+                  padding: '0.55rem 0.9rem',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-medium, #cbd5e1)',
+                  background: '#ffffff',
+                  color: 'var(--text-body, #334155)',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                }}
               >
                 Cancel
               </button>
@@ -572,14 +647,14 @@ export const TripDocumentsView: React.FC<Props> = ({
                   padding: '0.55rem 1.1rem',
                   borderRadius: '6px',
                   border: 'none',
-                  background: 'var(--accent-blue)',
+                  background: 'var(--primary, #0284c7)',
                   color: '#ffffff',
                   fontWeight: 600,
                   cursor: 'pointer',
                   fontSize: '12px',
                 }}
               >
-                Restore Database State
+                Execute Vault Restore
               </button>
             </div>
           </div>

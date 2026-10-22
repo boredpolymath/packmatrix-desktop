@@ -82,3 +82,32 @@ pub struct ComplianceEvaluation {
     pub depth_alert_message: Option<String>,
     pub warnings: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TripPlan {
+    pub id: String,
+    pub title: String,
+    pub origin_airport: Option<String>,
+    pub destination_airport: Option<String>,
+    pub departure_date: Option<String>,
+    pub return_date: Option<String>,
+    pub target_airline_rule_id: Option<String>,
+    pub active_luggage_shell_id: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Allocation {
+    pub id: String,
+    pub trip_plan_id: String,
+    pub inventory_item_id: String,
+    pub luggage_shell_id: Option<String>,
+    pub sub_container_id: Option<String>,
+    pub quantity: i64,
+    pub is_packed: bool,
+    pub packed_at: Option<String>,
+    pub custom_override_weight_g: Option<f64>,
+    pub pos_x: f64,
+    pub pos_y: f64,
+    pub pos_z: f64,
+}
