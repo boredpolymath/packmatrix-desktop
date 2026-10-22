@@ -7,6 +7,7 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
+    use uuid::Uuid;
 
     struct TestDir {
         path: PathBuf,
@@ -251,7 +252,7 @@ mod tests {
 
         let dir = TestDir::new("logging");
         let logger_salt = std::env::var("PACKMATRIX_TEST_LOGGER_SALT")
-            .unwrap_or_else(|_| format!("test-logger-salt-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+            .unwrap_or_else(|_| format!("test-logger-salt-{}", Uuid::new_v4()));
         let logger = RotatingDiagnosticLogger::new(dir.path(), &logger_salt);
 
         let entry = logger
