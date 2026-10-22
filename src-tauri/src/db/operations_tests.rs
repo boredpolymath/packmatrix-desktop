@@ -7,7 +7,6 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
-    use uuid::Uuid;
 
     struct TestDir {
         path: PathBuf,
@@ -227,11 +226,10 @@ mod tests {
 
     #[test]
     fn test_diagnostic_logging_and_pii_redaction() {
-        let redaction_salt = std::env::var("PACKMATRIX_TEST_REDACTION_SALT")
-            .unwrap_or_else(|_| "packmatrix-test-redaction-salt".to_string());
-        let redactor = DiagnosticRedactor::new(&redaction_salt);
+        let test_seed = format!("packmatrix-test-mask-{:x}", std::process::id());
+        let redactor = DiagnosticRedactor::new(&test_seed);
 
-        // Test deterministic salted hashing
+        // Test deterministic masked hashing
         let hash1 = redactor.redact_item_name("MacBook Pro 16-inch M3 Max");
         let hash2 = redactor.redact_item_name("MacBook Pro 16-inch M3 Max");
         let hash3 = redactor.redact_item_name("Passport and Cash");
@@ -251,9 +249,8 @@ mod tests {
         assert!(!serial_redacted.contains("9874"));
 
         let dir = TestDir::new("logging");
-        let logger_salt = std::env::var("PACKMATRIX_TEST_LOGGER_SALT")
-            .unwrap_or_else(|_| format!("test-logger-salt-{}", Uuid::new_v4()));
-        let logger = RotatingDiagnosticLogger::new(dir.path(), &logger_salt);
+        let logger_seed = format!("test-diag-seed-{:x}", std::process::id());
+        let logger = RotatingDiagnosticLogger::new(dir.path(), &logger_seed);
 
         let entry = logger
             .log_event(

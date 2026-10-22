@@ -462,20 +462,20 @@ pub fn execute_emergency_table_salvage<P: AsRef<Path>, D: AsRef<Path>>(
 // 8.3 Zero-Telemetry Diagnostic Logging & User Support Bundles
 // ============================================================================
 
-/// Deterministic redactor for PII, titles, values, serials.
+/// Deterministic redactor for PII, titles, values, serials using non-cryptographic FNV-1a.
 /// Retains only dimensional telemetry and operational timestamps.
 pub struct DiagnosticRedactor {
-    salt: String,
+    mask_seed: String,
 }
 
 impl DiagnosticRedactor {
-    pub fn new(salt: &str) -> Self {
+    pub fn new(mask_seed: &str) -> Self {
         Self {
-            salt: salt.to_string(),
+            mask_seed: mask_seed.to_string(),
         }
     }
 
-    /// Computes deterministic short salted hex hash: Item[#a1b2]
+    /// Computes deterministic short masked hex hash: Item[#a1b2]
     pub fn redact_item_name(&self, name: &str) -> String {
         let hash = self.fnv1a_hash(name);
         format!("Item[#{:04x}]", hash & 0xffff)
@@ -497,7 +497,7 @@ impl DiagnosticRedactor {
 
     fn fnv1a_hash(&self, input: &str) -> u64 {
         let mut hasher: u64 = 0xcbf29ce484222325;
-        for byte in self.salt.as_bytes() {
+        for byte in self.mask_seed.as_bytes() {
             hasher ^= *byte as u64;
             hasher = hasher.wrapping_mul(0x100000001b3);
         }
@@ -525,10 +525,10 @@ pub struct RotatingDiagnosticLogger {
 }
 
 impl RotatingDiagnosticLogger {
-    pub fn new<P: AsRef<Path>>(log_dir: P, salt: &str) -> Self {
+    pub fn new<P: AsRef<Path>>(log_dir: P, mask_seed: &str) -> Self {
         Self {
             log_dir: log_dir.as_ref().to_path_buf(),
-            redactor: DiagnosticRedactor::new(salt),
+            redactor: DiagnosticRedactor::new(mask_seed),
         }
     }
 
