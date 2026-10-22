@@ -8,6 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   e2e-cross-platform-matrix:
     name: E2E Matrix (${{ matrix.os }} - ${{ matrix.target-name }})
