@@ -251,7 +251,7 @@ mod tests {
 
         let dir = TestDir::new("logging");
         let logger_salt = std::env::var("PACKMATRIX_TEST_LOGGER_SALT")
-            .unwrap_or_else(|_| "packmatrix-test-logger-salt".to_string());
+            .unwrap_or_else(|_| format!("test-logger-salt-{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)));
         let logger = RotatingDiagnosticLogger::new(dir.path(), &logger_salt);
 
         let entry = logger
