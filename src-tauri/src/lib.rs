@@ -164,8 +164,9 @@ fn get_hotfix_sla_matrix() -> Vec<db::operations::HotfixSlaDefinition> {
 #[tauri::command]
 fn export_sanitized_diagnostic_bundle() -> Result<String, String> {
     let temp_log_dir = std::env::temp_dir().join("packmatrix_logs");
+    let runtime_salt = uuid::Uuid::new_v4().to_string();
     let logger =
-        db::operations::RotatingDiagnosticLogger::new(&temp_log_dir, "packmatrix-runtime-salt");
+        db::operations::RotatingDiagnosticLogger::new(&temp_log_dir, runtime_salt.as_str());
     let _ = logger.log_event(
         "INFO",
         "CORE",
