@@ -2,32 +2,22 @@ import type { CatalogProduct, CatalogBag, ItemCategory } from '../types';
 import { CURATED_PRODUCT_CATALOG } from '../data/productCatalog';
 import { CURATED_BAG_CATALOG } from '../data/bagCatalog';
 
-const STORAGE_KEY_UPC_KEY = 'packmatrix_upcitemdb_user_key';
+let upcItemDbApiKeyMemory = '';
 
 /**
- * Retrieves the user-configured UPCitemdb API user_key from localStorage
+ * Retrieves the user-configured UPCitemdb API user_key from in-memory storage.
+ * This avoids persisting sensitive credentials in browser storage.
  */
 export function getUpcItemDbApiKey(): string {
-  try {
-    return localStorage.getItem(STORAGE_KEY_UPC_KEY) || '';
-  } catch {
-    return '';
-  }
+  return upcItemDbApiKeyMemory;
 }
 
 /**
- * Saves or clears the user-configured UPCitemdb API user_key
+ * Saves or clears the user-configured UPCitemdb API user_key in memory only.
  */
 export function setUpcItemDbApiKey(key: string): void {
-  try {
-    if (key.trim()) {
-      localStorage.setItem(STORAGE_KEY_UPC_KEY, key.trim());
-    } else {
-      localStorage.removeItem(STORAGE_KEY_UPC_KEY);
-    }
-  } catch {
-    // Non-blocking fallback
-  }
+  const trimmed = key.trim();
+  upcItemDbApiKeyMemory = trimmed ? trimmed : '';
 }
 
 /**
