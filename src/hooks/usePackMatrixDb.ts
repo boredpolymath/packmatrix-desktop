@@ -28,6 +28,7 @@ export interface PackMatrixDbState {
 export function usePackMatrixDb(isReadOnlyMode = false) {
   const [carrierEnvelopes, setCarrierEnvelopes] = useState<CarrierEnvelope[]>([]);
   const [tripPlan, setTripPlan] = useState<TripPlan | null>(null);
+  const [tripPlans, setTripPlans] = useState<TripPlan[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -59,11 +60,12 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
     async function loadInitialDatabase() {
       try {
         setIsLoading(true);
-        const [bags, cubes, items, plan, carriers] = await Promise.all([
+        const [bags, cubes, items, plan, allPlans, carriers] = await Promise.all([
           ipc.getLuggageShells(),
           ipc.getSubContainers(),
           ipc.getInventoryItems(),
           ipc.getActiveTripPlan().catch(() => null),
+          ipc.getAllTripPlans().catch(() => []),
           ipc.getCarrierEnvelopes(),
         ]);
 
@@ -76,6 +78,12 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
           cubes,
           items,
         });
+
+        if (allPlans && allPlans.length > 0) {
+          setTripPlans(allPlans);
+        } else if (plan) {
+          setTripPlans([plan]);
+        }
 
         if (plan) {
           setTripPlan(plan);
@@ -215,6 +223,82 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
       });
     },
     [checkWriteAllowed, executeCommand, undo]
+  );
+
+  const handleUpdateBag = useCallback(
+    (updatedBag: LuggageShell) => {
+      if (!checkWriteAllowed()) return;
+      const original = state.bags.find((b) => b.id === updatedBag.id);
+      if (!original) return;
+
+      const cmd: Command<{ bags: LuggageShell[]; activeBagId: string; cubes: SubContainer[]; items: InventoryItem[] }> = {
+        description: `Update luggage geometry: ${updatedBag.name}`,
+        apply: (curr) => ({
+          ...curr,
+          bags: curr.bags.map((b) => (b.id === updatedBag.id ? updatedBag : b)),
+        }),
+        rollback: (curr) => ({
+          ...curr,
+          bags: curr.bags.map((b) => (b.id === original.id ? original : b)),
+        }),
+      };
+      executeCommand(cmd);
+
+      ipc.updateLuggageShell(updatedBag).catch((err) => {
+        undo();
+        setErrorMessage(`Failed to update luggage: ${err}`);
+      });
+    },
+    [checkWriteAllowed, state.bags, executeCommand, undo]
+  );
+
+  const handleDuplicateBag = useCallback(
+    (sourceBag: LuggageShell) => {
+      if (!checkWriteAllowed()) return;
+      const copy: LuggageShell = {
+        ...sourceBag,
+        id: `bag-copy-${Date.now()}`,
+        name: `${sourceBag.name} (Copy)`,
+      };
+      handleAddBag(copy);
+    },
+    [checkWriteAllowed, handleAddBag]
+  );
+
+  const handleDeleteBag = useCallback(
+    (bagId: string) => {
+      if (!checkWriteAllowed()) return;
+      if (state.bags.length <= 1) {
+        setErrorMessage('Cannot delete the only remaining luggage shell.');
+        return;
+      }
+      const target = state.bags.find((b) => b.id === bagId);
+      if (!target) return;
+
+      const remaining = state.bags.filter((b) => b.id !== bagId);
+      const nextActiveId = state.activeBagId === bagId ? remaining[0].id : state.activeBagId;
+
+      const cmd: Command<{ bags: LuggageShell[]; activeBagId: string; cubes: SubContainer[]; items: InventoryItem[] }> = {
+        description: `Delete luggage shell: ${target.name}`,
+        apply: (curr) => ({
+          ...curr,
+          bags: remaining,
+          activeBagId: nextActiveId,
+        }),
+        rollback: (curr) => ({
+          ...curr,
+          bags: [...curr.bags, target],
+          activeBagId: curr.activeBagId,
+        }),
+      };
+      executeCommand(cmd);
+
+      ipc.deleteLuggageShell(bagId).catch((err) => {
+        undo();
+        setErrorMessage(`Failed to delete luggage shell: ${err}`);
+      });
+    },
+    [checkWriteAllowed, state.bags, state.activeBagId, executeCommand, undo]
   );
 
   const handleUpdateItem = useCallback(
@@ -436,10 +520,66 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
     }
   }, [checkWriteAllowed, activeBag, tripPlan, state.cubes, state.items, executeCommand]);
 
+  const handleSelectTrip = useCallback(
+    async (tripId: string) => {
+      const target = tripPlans.find((t) => t.id === tripId);
+      if (!target) return;
+      setTripPlan(target);
+      if (target.active_luggage_shell_id) {
+        handleSelectActiveBag(target.active_luggage_shell_id);
+      }
+      const allocs = await ipc.getTripAllocations(target.id).catch(() => []);
+      setAllocations(allocs);
+    },
+    [tripPlans, handleSelectActiveBag]
+  );
+
+  const handleCreateTrip = useCallback(
+    async (newTrip: TripPlan) => {
+      if (!checkWriteAllowed()) return;
+      try {
+        const saved = await ipc.saveTripPlan(newTrip);
+        setTripPlans((curr) => [saved, ...curr.filter((t) => t.id !== saved.id)]);
+        setTripPlan(saved);
+        if (saved.active_luggage_shell_id) {
+          handleSelectActiveBag(saved.active_luggage_shell_id);
+        }
+      } catch (err) {
+        setErrorMessage(`Failed to create trip plan: ${err}`);
+      }
+    },
+    [checkWriteAllowed, handleSelectActiveBag]
+  );
+
+  const handleDeleteTrip = useCallback(
+    async (tripId: string) => {
+      if (!checkWriteAllowed()) return;
+      if (tripPlans.length <= 1) {
+        setErrorMessage('Cannot delete the only remaining trip plan.');
+        return;
+      }
+      try {
+        await ipc.deleteTripPlan(tripId);
+        const remaining = tripPlans.filter((t) => t.id !== tripId);
+        setTripPlans(remaining);
+        if (tripPlan?.id === tripId && remaining[0]) {
+          setTripPlan(remaining[0]);
+          if (remaining[0].active_luggage_shell_id) {
+            handleSelectActiveBag(remaining[0].active_luggage_shell_id);
+          }
+        }
+      } catch (err) {
+        setErrorMessage(`Failed to delete trip: ${err}`);
+      }
+    },
+    [checkWriteAllowed, tripPlans, tripPlan, handleSelectActiveBag]
+  );
+
   return {
     state,
     activeBag,
     tripPlan,
+    tripPlans,
     allocations,
     carrierEnvelopes,
     isLoading,
@@ -454,6 +594,12 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
     handleToggleExpandBag,
     handleSelectActiveBag,
     handleAddBag,
+    handleUpdateBag,
+    handleDuplicateBag,
+    handleDeleteBag,
+    handleSelectTrip,
+    handleCreateTrip,
+    handleDeleteTrip,
     handleUpdateItem,
     handleAddItem,
     handleBatchUpdateState,

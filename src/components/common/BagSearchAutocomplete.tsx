@@ -1,22 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { CatalogBag, UnitSystem } from '../../types';
-import { searchOfflineBagCatalog, searchOnlineBags, getUpcItemDbApiKey, setUpcItemDbApiKey } from '../../services/productLookup';
-import { Search, Globe, Database, Loader2, Check, X, Key, Luggage } from 'lucide-react';
+import { searchOfflineBagCatalog } from '../../services/productLookup';
+import { Search, Database, Check, X, Luggage } from 'lucide-react';
 
 interface Props {
   onSelectBag: (bag: CatalogBag) => void;
   unitSystem: UnitSystem;
+  placeholder?: string;
+  onInstantAddBag?: (bag: CatalogBag) => void;
 }
 
-export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem }) => {
+export const BagSearchAutocomplete: React.FC<Props> = ({
+  onSelectBag,
+  unitSystem,
+  placeholder,
+  onInstantAddBag,
+}) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [onlineResults, setOnlineResults] = useState<CatalogBag[]>([]);
-  const [isLoadingOnline, setIsLoadingOnline] = useState(false);
-  const [onlineNotice, setOnlineNotice] = useState<string | null>(null);
   const [selectedBagId, setSelectedBagId] = useState<string | null>(null);
-  const [showKeyConfig, setShowKeyConfig] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(getUpcItemDbApiKey());
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -25,7 +27,6 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
-        setShowKeyConfig(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -38,10 +39,16 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
     return searchOfflineBagCatalog(query);
   }, [query]);
 
+  // Detect dominant brand for heading menu
+  const primaryBrand = useMemo(() => {
+    if (offlineResults.length === 0) return null;
+    const firstBrand = offlineResults[0].brand;
+    const sameBrandCount = offlineResults.filter((b) => b.brand.toLowerCase() === firstBrand.toLowerCase()).length;
+    return sameBrandCount >= 2 || firstBrand.toLowerCase() === query.trim().toLowerCase() ? firstBrand : null;
+  }, [offlineResults, query]);
+
   const handleQueryChange = (val: string) => {
     setQuery(val);
-    setOnlineResults([]);
-    setOnlineNotice(null);
     if (val.trim()) {
       setIsOpen(true);
     } else {
@@ -49,40 +56,15 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
     }
   };
 
-  const handleSearchOnline = async () => {
-    if (!query.trim() || isLoadingOnline) return;
-    setIsLoadingOnline(true);
-    setOnlineNotice(null);
-
-    try {
-      const results = await searchOnlineBags(query);
-      setOnlineResults(results);
-      if (results.length === 0) {
-        setOnlineNotice('No external bag matches found. Showing verified catalog.');
-      }
-    } catch (err: any) {
-      setOnlineNotice(err.message || 'Online query error. Using verified catalog.');
-    } finally {
-      setIsLoadingOnline(false);
-    }
-  };
-
-  const handleSaveApiKey = () => {
-    setUpcItemDbApiKey(apiKeyInput);
-    setShowKeyConfig(false);
-  };
-
   const handleSelect = (bag: CatalogBag) => {
     setSelectedBagId(bag.id);
     onSelectBag(bag);
-    setQuery(`${bag.brand} ${bag.name}`);
+    setQuery(bag.name);
     setIsOpen(false);
   };
 
   const handleClear = () => {
     setQuery('');
-    setOnlineResults([]);
-    setOnlineNotice(null);
     setSelectedBagId(null);
     setIsOpen(false);
   };
@@ -96,8 +78,6 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
     if (unitSystem === 'metric') return `${l} × ${w} × ${d} cm`;
     return `${(l / 2.54).toFixed(1)} × ${(w / 2.54).toFixed(1)} × ${(d / 2.54).toFixed(1)} in`;
   };
-
-  const totalResultsCount = offlineResults.length + onlineResults.length;
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', marginBottom: '1rem' }}>
@@ -116,89 +96,12 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
           }}
         >
           <Luggage size={13} />
-          <span>Search Travel Bag Catalog & UPC Barcode</span>
+          <span>Luggage Spec Search &amp; Auto-Calibration</span>
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-            60+ verified luggage specs (0ms lookup)
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowKeyConfig(!showKeyConfig)}
-            title="Configure UPCitemdb user_key"
-            style={{
-              background: apiKeyInput ? '#e0f2fe' : 'transparent',
-              border: '1px solid var(--border-medium)',
-              borderRadius: '4px',
-              padding: '2px 5px',
-              fontSize: '10px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '3px',
-              color: apiKeyInput ? '#0369a1' : 'var(--text-secondary)',
-            }}
-          >
-            <Key size={10} />
-            <span>{apiKeyInput ? 'API Key Active' : 'API Key'}</span>
-          </button>
-        </div>
+        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+          Search brands (Samsonite, Away, Rimowa, Osprey, Travelpro) or models
+        </span>
       </div>
-
-      {/* Optional UPCitemdb API Key Configuration Drawer */}
-      {showKeyConfig && (
-        <div
-          style={{
-            padding: '10px 12px',
-            background: '#f8fafc',
-            border: '1px solid var(--border-medium)',
-            borderRadius: '8px',
-            marginBottom: '8px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px',
-            fontSize: '11px',
-          }}
-        >
-          <div style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
-            Optional UPCitemdb API Key (user_key)
-          </div>
-          <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-            Direct UPCitemdb searches require a user_key. If unconfigured, PackMatrix automatically searches our verified offline database and Open Products Facts.
-          </div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <input
-              type="text"
-              placeholder="Paste UPCitemdb user_key..."
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '4px 8px',
-                borderRadius: '5px',
-                border: '1px solid var(--border-medium)',
-                fontSize: '11px',
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleSaveApiKey}
-              style={{
-                padding: '4px 10px',
-                background: '#0f172a',
-                color: '#ffffff',
-                borderRadius: '5px',
-                border: 'none',
-                fontWeight: 600,
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Main Search Input */}
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -209,17 +112,18 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
         <input
           id="bag-catalog-search-input"
           type="text"
-          placeholder="Search bag name or brand: e.g. Osprey Farpoint, Peak Design 45L, Away, Rimowa, Aer, Tortuga..."
+          placeholder={placeholder || 'Search by luggage brand or model (e.g. Samsonite, Away, Rimowa, Osprey, Travelpro)...'}
           value={query}
           onChange={(e) => handleQueryChange(e.target.value)}
           onFocus={() => {
-            if (query.trim() && totalResultsCount > 0) setIsOpen(true);
+            if (query.trim() && offlineResults.length > 0) setIsOpen(true);
           }}
+          autoComplete="off"
           style={{
             width: '100%',
-            padding: '0.65rem 2.4rem 0.65rem 2.1rem',
+            padding: '0.6rem 2.2rem 0.6rem 2rem',
             borderRadius: '8px',
-            border: '1.5px solid var(--border-medium)',
+            border: '1px solid var(--border-medium, #cbd5e1)',
             background: 'var(--surface-dim, #f1f5f9)',
             fontSize: '13px',
             color: 'var(--text-dark)',
@@ -262,16 +166,16 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
             borderRadius: '10px',
             border: '1px solid var(--border-medium, #cbd5e1)',
             boxShadow: 'var(--shadow-modal, 0 20px 25px -5px rgba(0, 0, 0, 0.25))',
-            maxHeight: '300px',
+            maxHeight: '340px',
             overflowY: 'auto',
             zIndex: 1100,
             display: 'flex',
             flexDirection: 'column',
           }}
         >
-          {totalResultsCount === 0 && !isLoadingOnline && (
-            <div style={{ padding: '14px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
-              No bags found matching &ldquo;{query}&rdquo;. Click below to search online or enter measurements manually.
+          {offlineResults.length === 0 && (
+            <div style={{ padding: '16px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+              No luggage shells matching &ldquo;{query}&rdquo;.
             </div>
           )}
 
@@ -280,21 +184,30 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
             <div>
               <div
                 style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface-dim, #f8fafc)',
-                  fontSize: '10px',
+                  padding: '7px 12px',
+                  background: primaryBrand ? '#f0f9ff' : 'var(--surface-dim, #f8fafc)',
+                  fontSize: '10.5px',
                   fontWeight: 700,
-                  color: 'var(--text-secondary)',
+                  color: primaryBrand ? '#0369a1' : 'var(--text-secondary)',
                   letterSpacing: '0.04em',
                   textTransform: 'uppercase',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '5px',
+                  gap: '6px',
                   borderBottom: '1px solid var(--border-light)',
                 }}
               >
-                <Database size={11} color="var(--primary-accent)" />
-                <span>Verified Luggage Database ({offlineResults.length} matches)</span>
+                {primaryBrand ? (
+                  <>
+                    <Luggage size={12} color="#0284c7" />
+                    <span>{primaryBrand} Collection ({offlineResults.filter(b => b.brand.toLowerCase() === primaryBrand.toLowerCase()).length} models)</span>
+                  </>
+                ) : (
+                  <>
+                    <Database size={11} color="var(--primary-accent)" />
+                    <span>Verified Luggage Database ({offlineResults.length} matches)</span>
+                  </>
+                )}
               </div>
 
               {offlineResults.map((bag: CatalogBag) => (
@@ -318,15 +231,21 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
                     if (selectedBagId !== bag.id) e.currentTarget.style.background = '#ffffff';
                   }}
                 >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '65%' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', maxWidth: '65%' }}>
                     <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span>{bag.name}</span>
                       {selectedBagId === bag.id && <Check size={12} color="#0284c7" />}
+                      {bag.id.startsWith('auto-bag-') && (
+                        <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 700 }}>
+                          ✨ Auto-Calibrated
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      <span style={{ fontWeight: 600 }}>{bag.brand}</span>
-                      <span>·</span>
-                      <span style={{ background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: '4px', fontSize: '9.5px', fontWeight: 600 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '5px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <span style={{ background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+                        {bag.brand}
+                      </span>
+                      <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: '4px', fontSize: '9.5px', fontWeight: 600 }}>
                         {bag.category}
                       </span>
                       {bag.expansion_gusset_cm > 0 && (
@@ -337,7 +256,7 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
                     </div>
                   </div>
 
-                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px', flexShrink: 0 }}>
                     <span style={{ fontSize: '12px', fontWeight: 800, color: '#0284c7' }}>
                       {bag.nominal_volume_l} L
                     </span>
@@ -347,124 +266,35 @@ export const BagSearchAutocomplete: React.FC<Props> = ({ onSelectBag, unitSystem
                     <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                       Tare: {formatWeight(bag.tare_weight_g)}
                     </span>
+                    {onInstantAddBag && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onInstantAddBag(bag);
+                          setIsOpen(false);
+                          setQuery('');
+                        }}
+                        style={{
+                          marginTop: '4px',
+                          padding: '3px 9px',
+                          borderRadius: '4px',
+                          border: 'none',
+                          background: 'var(--primary, #0284c7)',
+                          color: '#ffffff',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        + Add Bag
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           )}
-
-          {/* Online Results Section */}
-          {onlineResults.length > 0 && (
-            <div>
-              <div
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface-dim, #f8fafc)',
-                  fontSize: '10px',
-                  fontWeight: 700,
-                  color: 'var(--accent-blue)',
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  borderBottom: '1px solid var(--border-light)',
-                }}
-              >
-                <Globe size={11} color="var(--accent-blue)" />
-                <span>Online Product Feed Matches ({onlineResults.length})</span>
-              </div>
-
-              {onlineResults.map((bag: CatalogBag) => (
-                <div
-                  key={bag.id}
-                  onClick={() => handleSelect(bag)}
-                  style={{
-                    padding: '8px 12px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid var(--border-light)',
-                    background: '#ffffff',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f8fafc')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#ffffff')}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxWidth: '65%' }}>
-                    <div style={{ fontSize: '12.5px', fontWeight: 700, color: 'var(--text-dark)' }}>
-                      {bag.name}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                      <span style={{ fontWeight: 600 }}>{bag.brand}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 800, color: '#0284c7' }}>
-                      {bag.nominal_volume_l} L
-                    </span>
-                    <span style={{ fontSize: '10.5px', color: 'var(--text-dark)' }}>
-                      {formatDim(bag.length_cm, bag.width_cm, bag.depth_cm)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {onlineNotice && (
-            <div style={{ padding: '8px 12px', fontSize: '11px', color: '#b45309', background: '#fef3c7', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>ℹ {onlineNotice}</span>
-            </div>
-          )}
-
-          {/* Bottom Action Footer */}
-          <div
-            style={{
-              padding: '8px 12px',
-              background: '#f8fafc',
-              borderTop: '1px solid var(--border-medium)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <span style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-              Selecting a bag auto-populates all 3D geometry specs
-            </span>
-
-            <button
-              type="button"
-              onClick={handleSearchOnline}
-              disabled={isLoadingOnline}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-medium)',
-                background: '#ffffff',
-                color: 'var(--text-dark)',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: isLoadingOnline ? 'wait' : 'pointer',
-              }}
-            >
-              {isLoadingOnline ? (
-                <>
-                  <Loader2 size={12} className="spin-animate" />
-                  <span>Searching online...</span>
-                </>
-              ) : (
-                <>
-                  <Globe size={12} color="var(--primary-accent)" />
-                  <span>Search Online (Live / UPC)</span>
-                </>
-              )}
-            </button>
-          </div>
         </div>
       )}
     </div>

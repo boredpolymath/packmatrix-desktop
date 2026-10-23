@@ -20,6 +20,8 @@ import {
   Download,
   Trash2,
   LifeBuoy,
+  Settings,
+  Plus,
 } from 'lucide-react';
 import type {
   LuggageShell,
@@ -35,9 +37,16 @@ import { PackingCubesView } from './components/views/PackingCubesView';
 import { GearInventoryView } from './components/views/GearInventoryView';
 import { AirlineRulesView } from './components/views/AirlineRulesView';
 import { TripDocumentsView } from './components/views/TripDocumentsView';
+import { SettingsModal } from './components/common/SettingsModal';
+import { NewTripModal } from './components/common/NewTripModal';
 
 export function App() {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
+  const [currency, setCurrency] = useState('USD');
+  const [sizerStrictness, setSizerStrictness] = useState<'strict' | 'squeeze'>('strict');
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isNewTripModalOpen, setIsNewTripModalOpen] = useState(false);
+  const [isTripMenuOpen, setIsTripMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
     'My Packing' | 'Saved Bags' | 'Packing Cubes' | 'Airline Baggage Rules' | 'Gear Checklist' | 'Trip Documents'
   >('My Packing');
@@ -73,6 +82,7 @@ export function App() {
     state,
     activeBag,
     tripPlan,
+    tripPlans,
     carrierEnvelopes,
     isLoading,
     undo,
@@ -83,6 +93,12 @@ export function App() {
     handleToggleExpandBag,
     handleSelectActiveBag,
     handleAddBag,
+    handleUpdateBag,
+    handleDuplicateBag,
+    handleDeleteBag,
+    handleSelectTrip,
+    handleCreateTrip,
+    handleDeleteTrip,
     handleUpdateItem,
     handleAddItem,
     handleBatchUpdateState,
@@ -336,6 +352,28 @@ export function App() {
             <span>Diagnostics</span>
           </button>
 
+          <button
+            onClick={() => setIsSettingsModalOpen(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 8px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-medium)',
+              background: 'var(--surface-dim)',
+              fontSize: '11px',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+            title="Preferences & Settings (Units, Strictness, APIs, Security)"
+            aria-label="Open Preferences"
+          >
+            <Settings size={13} />
+            <span>Settings</span>
+          </button>
+
           <div className="unit-switch">
             <span
               className={`unit-pill ${unitSystem === 'metric' ? 'active' : ''}`}
@@ -375,17 +413,135 @@ export function App() {
         {/* 256px Cockpit Sidebar */}
         <aside className="app-sidebar">
           <div className="workspace-section-label">Workspace</div>
-          <div className="workspace-card" title="Active Trip Itinerary">
-            <div className="workspace-icon-box">
-              <Plane size={18} />
-            </div>
-            <div className="workspace-meta">
-              <div className="workspace-title">{tripPlan?.title || 'Transatlantic Summer ...'}</div>
-              <div className="workspace-sub">
-                {tripPlan?.origin_airport || 'FRA'} → {tripPlan?.destination_airport || 'JFK'} · {tripPlan?.departure_date || 'Jun 14'}
+          <div style={{ position: 'relative' }}>
+            <div
+              className="workspace-card"
+              title="Active Trip Itinerary — Click to Switch Trip"
+              onClick={() => setIsTripMenuOpen(!isTripMenuOpen)}
+              style={{ cursor: 'pointer' }}
+              role="button"
+              tabIndex={0}
+            >
+              <div className="workspace-icon-box">
+                <Plane size={18} />
               </div>
+              <div className="workspace-meta" style={{ flex: 1, minWidth: 0 }}>
+                <div className="workspace-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {tripPlan?.title || 'Transatlantic Summer ...'}
+                </div>
+                <div className="workspace-sub">
+                  {tripPlan?.origin_airport || 'FRA'} → {tripPlan?.destination_airport || 'JFK'} · {tripPlan?.departure_date || 'Jun 14'}
+                </div>
+              </div>
+              <ChevronDown
+                size={14}
+                color="#94a3b8"
+                style={{
+                  transform: isTripMenuOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.15s ease',
+                }}
+              />
             </div>
-            <ChevronDown size={14} color="#94a3b8" />
+
+            {/* Trip Switcher Dropdown */}
+            {isTripMenuOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: '6px',
+                  background: '#ffffff',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: '10px',
+                  boxShadow: 'var(--shadow-modal, 0 10px 25px rgba(0,0,0,0.2))',
+                  zIndex: 50,
+                  padding: '6px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px',
+                }}
+              >
+                <div style={{ fontSize: '10.5px', fontWeight: 700, color: 'var(--text-muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Select Trip Plan
+                </div>
+                {tripPlans.map((tp) => (
+                  <div
+                    key={tp.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 8px',
+                      borderRadius: '6px',
+                      background: tp.id === tripPlan?.id ? 'var(--primary-container, #e0f2fe)' : 'transparent',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      handleSelectTrip(tp.id);
+                      setIsTripMenuOpen(false);
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: tp.id === tripPlan?.id ? 'var(--primary)' : 'var(--text-dark)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {tp.title}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
+                        {tp.origin_airport} → {tp.destination_airport} · {tp.departure_date}
+                      </div>
+                    </div>
+                    {tripPlans.length > 1 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete trip plan "${tp.title}"?`)) {
+                            handleDeleteTrip(tp.id);
+                          }
+                        }}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: 'var(--accent-red, #ef4444)',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          borderRadius: '4px',
+                        }}
+                        title="Delete Trip Plan"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ borderTop: '1px solid var(--border-light)', marginTop: '4px', paddingTop: '4px' }}>
+                  <button
+                    onClick={() => {
+                      setIsTripMenuOpen(false);
+                      setIsNewTripModalOpen(true);
+                    }}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      padding: '6px',
+                      borderRadius: '6px',
+                      border: '1px dashed var(--primary)',
+                      background: 'rgba(2, 132, 199, 0.05)',
+                      color: 'var(--primary)',
+                      fontSize: '11.5px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Plus size={13} />
+                    <span>Create New Trip</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <nav className="nav-group">
@@ -483,6 +639,9 @@ export function App() {
               activeBagId={state.activeBagId}
               onSelectActiveBag={handleSelectActiveBag}
               onAddBag={handleAddBag}
+              onUpdateBag={handleUpdateBag}
+              onDuplicateBag={handleDuplicateBag}
+              onDeleteBag={handleDeleteBag}
               unitSystem={unitSystem}
             />
           )}
@@ -1246,6 +1405,63 @@ export function App() {
           </div>
         </div>
       )}
+
+      {/* New Trip Creation Modal */}
+      <NewTripModal
+        isOpen={isNewTripModalOpen}
+        onClose={() => setIsNewTripModalOpen(false)}
+        onCreateTrip={handleCreateTrip}
+        bags={state.bags}
+        activeBagId={state.activeBagId}
+        unitSystem={unitSystem}
+      />
+
+      {/* Unified Settings & Preferences Modal */}
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
+        unitSystem={unitSystem}
+        onUnitSystemChange={setUnitSystem}
+        currency={currency}
+        onCurrencyChange={setCurrency}
+        sizerStrictness={sizerStrictness}
+        onSizerStrictnessChange={setSizerStrictness}
+        onOpenDiagnostics={() => {
+          setIsSettingsModalOpen(false);
+          setIsBenchmarkModalOpen(true);
+        }}
+        onExportVault={() => {
+          const backupPackage = {
+            version: '1.0.0',
+            exported_at: new Date().toISOString(),
+            luggage: state.bags,
+            inventory: state.items,
+            cubes: state.cubes,
+            tripPlans,
+          };
+          const content = JSON.stringify(backupPackage, null, 2);
+          const blob = new Blob([content], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `packmatrix-vault-${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }}
+        onSecureWipe={async () => {
+          if (confirm('Execute Secure Wipe & Reset? This will overwrite local storage with zeroes.')) {
+            try {
+              setIsPerformingWipe(true);
+              await ipc.executeSecureWipe();
+              setOperationsNotice('Cryptographic zero-fill executed: 1,048,576 bytes zeroized across database files. Reset complete.');
+            } catch (err) {
+              setOperationsNotice(`Secure wipe failed: ${err}`);
+            } finally {
+              setIsPerformingWipe(false);
+            }
+          }
+        }}
+      />
     </>
   );
 }

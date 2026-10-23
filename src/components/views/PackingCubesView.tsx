@@ -2,6 +2,14 @@ import React, { useState } from 'react';
 import type { SubContainer, InventoryItem, LuggageShell, ZoneLayerTag, UnitSystem } from '../../types';
 import { DEFAULT_FALLBACK_BAG } from '../../types';
 import { Box, Plus, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import {
+  CM_TO_IN,
+  IN_TO_CM,
+  G_TO_OZ,
+  OZ_TO_G,
+  formatDim as formatDimUtil,
+  formatGearWeight,
+} from '../../utils/units';
 
 interface Props {
   cubes: SubContainer[];
@@ -20,6 +28,19 @@ const ZONE_TAGS: ZoneLayerTag[] = [
   'Quick Access',
 ];
 
+const CUBE_COLOR_PALETTES = [
+  { name: 'Ocean Cyan', bg: 'rgba(2, 132, 199, 0.12)', border: 'rgba(2, 132, 199, 0.35)', text: '#0284c7', fill: '#0284c7' },
+  { name: 'Emerald Green', bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.35)', text: '#059669', fill: '#059669' },
+  { name: 'Amber Glow', bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.35)', text: '#d97706', fill: '#d97706' },
+  { name: 'Violet Indigo', bg: 'rgba(99, 102, 241, 0.12)', border: 'rgba(99, 102, 241, 0.35)', text: '#6366f1', fill: '#6366f1' },
+  { name: 'Rose Coral', bg: 'rgba(244, 63, 94, 0.12)', border: 'rgba(244, 63, 94, 0.35)', text: '#e11d48', fill: '#e11d48' },
+  { name: 'Teal Turquoise', bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(20, 184, 166, 0.35)', text: '#0d9488', fill: '#0d9488' },
+];
+
+const getCubePalette = (index: number) => {
+  return CUBE_COLOR_PALETTES[index % CUBE_COLOR_PALETTES.length] || CUBE_COLOR_PALETTES[0]!;
+};
+
 export const PackingCubesView: React.FC<Props> = ({
   cubes,
   items,
@@ -31,14 +52,19 @@ export const PackingCubesView: React.FC<Props> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newCubeName, setNewCubeName] = useState('');
   const [newCubeType, setNewCubeType] = useState<'cube' | 'pouch' | 'sleeve' | 'organizer' | 'pocket'>('cube');
-  const [lengthCm, setLengthCm] = useState(28.0);
-  const [widthCm, setWidthCm] = useState(20.0);
-  const [depthCm, setDepthCm] = useState(8.0);
-  const [tareG, setTareG] = useState(90);
+  const [displayLength, setDisplayLength] = useState(unitSystem === 'imperial' ? (28.0 * CM_TO_IN).toFixed(1) : '28.0');
+  const [displayWidth, setDisplayWidth] = useState(unitSystem === 'imperial' ? (20.0 * CM_TO_IN).toFixed(1) : '20.0');
+  const [displayDepth, setDisplayDepth] = useState(unitSystem === 'imperial' ? (8.0 * CM_TO_IN).toFixed(1) : '8.0');
+  const [displayTare, setDisplayTare] = useState(unitSystem === 'imperial' ? (90 * G_TO_OZ).toFixed(1) : '90');
   const [compRatio, setCompRatio] = useState(0.8);
   const [zone, setZone] = useState<ZoneLayerTag>('Spine Mid');
 
   const bag = activeBag || DEFAULT_FALLBACK_BAG;
+
+  const lengthCm = unitSystem === 'imperial' ? (parseFloat(displayLength) || 0) * IN_TO_CM : (parseFloat(displayLength) || 0);
+  const widthCm = unitSystem === 'imperial' ? (parseFloat(displayWidth) || 0) * IN_TO_CM : (parseFloat(displayWidth) || 0);
+  const depthCm = unitSystem === 'imperial' ? (parseFloat(displayDepth) || 0) * IN_TO_CM : (parseFloat(displayDepth) || 0);
+  const tareG = unitSystem === 'imperial' ? Math.round((parseFloat(displayTare) || 0) * OZ_TO_G) : Math.round(parseFloat(displayTare) || 0);
 
   // Compute total compressed volume of all subcontainers assigned to active bag
   const totalSubContainerVolL = cubes.reduce((acc, c) => {
@@ -61,11 +87,11 @@ export const PackingCubesView: React.FC<Props> = ({
       luggage_shell_id: bag.id,
       name: newCubeName.trim(),
       container_type: newCubeType,
-      length_cm: Number(lengthCm),
-      width_cm: Number(widthCm),
-      depth_cm: Number(depthCm),
+      length_cm: Math.round(lengthCm * 10) / 10,
+      width_cm: Math.round(widthCm * 10) / 10,
+      depth_cm: Math.round(depthCm * 10) / 10,
       max_volume_l: Math.round(rawL * 10) / 10,
-      tare_weight_g: Number(tareG),
+      tare_weight_g: tareG,
       compression_ratio: Number(compRatio),
       zone_layer: zone,
     };
@@ -75,10 +101,7 @@ export const PackingCubesView: React.FC<Props> = ({
     setNewCubeName('');
   };
 
-  const formatDim = (cm: number) => {
-    if (unitSystem === 'metric') return `${cm.toFixed(1)} cm`;
-    return `${(cm / 2.54).toFixed(1)} in`;
-  };
+  const formatDim = (cm: number) => formatDimUtil(cm, unitSystem);
 
   return (
     <div style={{ padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -166,7 +189,8 @@ export const PackingCubesView: React.FC<Props> = ({
 
       {/* Sub-Containers List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        {cubes.map((cube) => {
+        {cubes.map((cube, idx) => {
+          const palette = getCubePalette(idx);
           const rawL = (cube.length_cm * cube.width_cm * cube.depth_cm) / 1000.0;
           const compressedL = rawL * cube.compression_ratio;
           const nestedItems = items.filter((i) => i.sub_container_id === cube.id);
@@ -178,6 +202,7 @@ export const PackingCubesView: React.FC<Props> = ({
               style={{
                 background: 'var(--surface-card)',
                 border: '1px solid var(--border-light)',
+                borderLeft: `5px solid ${palette.fill}`,
                 borderRadius: '12px',
                 padding: '1rem',
                 display: 'flex',
@@ -193,19 +218,34 @@ export const PackingCubesView: React.FC<Props> = ({
                       width: '36px',
                       height: '36px',
                       borderRadius: '8px',
-                      background: 'rgba(56, 189, 248, 0.12)',
+                      background: palette.bg,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: 'var(--accent-blue)',
+                      color: palette.text,
                     }}
                   >
                     <Box size={18} />
                   </div>
                   <div>
-                    <h3 style={{ fontSize: '13.5px', fontWeight: 700 }}>{cube.name}</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <h3 style={{ fontSize: '13.5px', fontWeight: 700 }}>{cube.name}</h3>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          background: palette.bg,
+                          color: palette.text,
+                          border: `1px solid ${palette.border}`,
+                        }}
+                      >
+                        {palette.name}
+                      </span>
+                    </div>
                     <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      Type: {cube.container_type.toUpperCase()} · Tare: {cube.tare_weight_g} g · {packedMassG} g gear ({nestedItems.length} items)
+                      Type: {cube.container_type.toUpperCase()} · Tare: {formatGearWeight(cube.tare_weight_g, unitSystem)} · {formatGearWeight(packedMassG, unitSystem)} gear ({nestedItems.length} items)
                     </span>
                   </div>
                 </div>
@@ -295,7 +335,7 @@ export const PackingCubesView: React.FC<Props> = ({
                       }}
                     >
                       <span style={{ fontWeight: 600 }}>{item.name}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>({item.weight_g} g)</span>
+                      <span style={{ color: 'var(--text-muted)' }}>({formatGearWeight(item.weight_g, unitSystem)})</span>
                     </span>
                   ))}
                 </div>
@@ -389,32 +429,38 @@ export const PackingCubesView: React.FC<Props> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>Length (cm)</label>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                    Length ({unitSystem === 'metric' ? 'cm' : 'in'})
+                  </label>
                   <input
                     type="number"
-                    step="0.5"
-                    value={lengthCm}
-                    onChange={(e) => setLengthCm(parseFloat(e.target.value) || 0)}
+                    step="0.1"
+                    value={displayLength}
+                    onChange={(e) => setDisplayLength(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>Width (cm)</label>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                    Width ({unitSystem === 'metric' ? 'cm' : 'in'})
+                  </label>
                   <input
                     type="number"
-                    step="0.5"
-                    value={widthCm}
-                    onChange={(e) => setWidthCm(parseFloat(e.target.value) || 0)}
+                    step="0.1"
+                    value={displayWidth}
+                    onChange={(e) => setDisplayWidth(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>Depth (cm)</label>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                    Depth ({unitSystem === 'metric' ? 'cm' : 'in'})
+                  </label>
                   <input
                     type="number"
-                    step="0.5"
-                    value={depthCm}
-                    onChange={(e) => setDepthCm(parseFloat(e.target.value) || 0)}
+                    step="0.1"
+                    value={displayDepth}
+                    onChange={(e) => setDisplayDepth(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
                   />
                 </div>
@@ -422,11 +468,14 @@ export const PackingCubesView: React.FC<Props> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>Tare Weight (g)</label>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                    Tare Weight ({unitSystem === 'metric' ? 'g' : 'oz'})
+                  </label>
                   <input
                     type="number"
-                    value={tareG}
-                    onChange={(e) => setTareG(parseFloat(e.target.value) || 0)}
+                    step={unitSystem === 'metric' ? '1' : '0.1'}
+                    value={displayTare}
+                    onChange={(e) => setDisplayTare(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
                   />
                 </div>

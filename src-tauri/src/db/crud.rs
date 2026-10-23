@@ -522,6 +522,39 @@ pub fn get_active_trip_plan(conn: &Connection) -> SqliteResult<Option<TripPlan>>
     }
 }
 
+pub fn get_all_trip_plans(conn: &Connection) -> SqliteResult<Vec<TripPlan>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, origin_airport, destination_airport, departure_date, return_date, target_airline_rule_id, active_luggage_shell_id, notes
+         FROM trip_plans
+         ORDER BY created_at DESC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(TripPlan {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            origin_airport: row.get(2)?,
+            destination_airport: row.get(3)?,
+            departure_date: row.get(4)?,
+            return_date: row.get(5)?,
+            target_airline_rule_id: row.get(6)?,
+            active_luggage_shell_id: row.get(7)?,
+            notes: row.get(8)?,
+        })
+    })?;
+
+    let mut plans = Vec::new();
+    for plan in rows {
+        plans.push(plan?);
+    }
+    Ok(plans)
+}
+
+pub fn delete_trip_plan(conn: &Connection, id: &str) -> SqliteResult<bool> {
+    let affected = conn.execute("DELETE FROM trip_plans WHERE id = ?1", params![id])?;
+    Ok(affected > 0)
+}
+
 pub fn save_trip_plan(conn: &Connection, plan: &TripPlan) -> SqliteResult<TripPlan> {
     conn.execute(
         "INSERT INTO trip_plans (id, title, origin_airport, destination_airport, departure_date, return_date, target_airline_rule_id, active_luggage_shell_id, notes)

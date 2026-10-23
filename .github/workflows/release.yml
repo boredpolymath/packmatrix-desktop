@@ -1,0 +1,115 @@
+name: Release Build & Multi-Platform Packaging
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Publish as draft release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build-release:
+    name: Build & Package (${{ matrix.platform.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: macOS Universal
+            os: macos-latest
+            target: universal-apple-darwin
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: Linux x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Lock Hermetic Timestamp (SOURCE_DATE_EPOCH)
+        shell: bash
+        run: |
+          COMMIT_TIMESTAMP=$(git log -1 --pretty=%ct)
+          echo "SOURCE_DATE_EPOCH=${COMMIT_TIMESTAMP}" >> $GITHUB_ENV
+          echo "Hermetic epoch locked to commit timestamp: ${COMMIT_TIMESTAMP}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.platform.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.platform.target }}
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            squashfs-tools \
+            rpm
+
+      - name: Build Web Production Assets
+        run: npm run build
+
+      - name: Package Standalone Native Binaries (Tauri v2)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' || secrets.WINDOWS_CERTIFICATE != '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'PackMatrix Desktop ${{ github.ref_name }}'
+          releaseBody: 'Production release binaries with air-gap verification and cryptographic integrity.'
+          releaseDraft: ${{ github.event.inputs.draft || false }}
+          prerelease: false
+
+      - name: Compute Cryptographic Checksums (SHA-256)
+        shell: bash
+        run: |
+          mkdir -p release-bundle
+          find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.tar.gz" \) -exec cp {} release-bundle/ \;
+          cd release-bundle
+          if [ "$(ls -A .)" ]; then
+            shasum -a 256 * > SHA256SUMS-${{ matrix.platform.target }}.txt
+          fi
+
+      - name: Upload Platform Release Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: packmatrix-${{ matrix.platform.target }}
+          path: release-bundle/*
+          retention-days: 14

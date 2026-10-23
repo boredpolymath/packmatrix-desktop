@@ -439,6 +439,27 @@ fn get_active_trip_plan(
 }
 
 #[tauri::command]
+fn get_all_trip_plans(
+    state: tauri::State<db::DatabaseState>,
+) -> Result<Vec<db::models::TripPlan>, security::AppError> {
+    state
+        .pool
+        .read(db::crud::get_all_trip_plans)
+        .map_err(|e| security::AppError::Storage(e.to_string()))
+}
+
+#[tauri::command]
+fn delete_trip_plan(
+    state: tauri::State<db::DatabaseState>,
+    id: String,
+) -> Result<bool, security::AppError> {
+    state
+        .pool
+        .write(move |conn| db::crud::delete_trip_plan(conn, &id))
+        .map_err(|e| security::AppError::Storage(e.to_string()))
+}
+
+#[tauri::command]
 fn save_trip_plan(
     state: tauri::State<db::DatabaseState>,
     plan: db::models::TripPlan,
@@ -536,6 +557,8 @@ pub fn run() {
             batch_assign_subcontainer,
             batch_delete_inventory_items,
             get_active_trip_plan,
+            get_all_trip_plans,
+            delete_trip_plan,
             save_trip_plan,
             get_trip_allocations,
             save_item_allocation,

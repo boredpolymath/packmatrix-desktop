@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import type { AirlineRule, LuggageShell, InventoryItem, ServiceTier, UnitSystem, CarrierEnvelope } from '../../types';
 import { DEFAULT_FALLBACK_BAG } from '../../types';
+import { formatDim as formatDimUtil, formatMassKg, format3D } from '../../utils/units';
 import {
   Droplet,
   Battery,
   Box,
+  Star,
+  Search,
 } from 'lucide-react';
 
 interface Props {
@@ -31,8 +34,66 @@ export const AirlineRulesView: React.FC<Props> = ({
 }) => {
   const [selectedRuleId, setSelectedRuleId] = useState<string>(rules[0]?.id || '');
   const [activeTier, setActiveTier] = useState<ServiceTier>('StandardEconomy' as any);
+  const [carrierSearch, setCarrierSearch] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<string>('All');
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('packmatrix_favorite_airlines');
+      return saved ? JSON.parse(saved) : ['rule-dl-eco', 'rule-lh-eco', 'rule-ba-eco'];
+    } catch {
+      return ['rule-dl-eco', 'rule-lh-eco', 'rule-ba-eco'];
+    }
+  });
 
-  const selectedRule = rules.find((r) => r.id === selectedRuleId) || rules[0];
+  const toggleFavorite = (id: string) => {
+    const next = favoriteIds.includes(id)
+      ? favoriteIds.filter((f) => f !== id)
+      : [...favoriteIds, id];
+    setFavoriteIds(next);
+    try {
+      localStorage.setItem('packmatrix_favorite_airlines', JSON.stringify(next));
+    } catch {
+      // fallback
+    }
+  };
+
+  const REGION_MAP: Record<string, string[]> = {
+    'North America': ['DL', 'UA', 'AA', 'AS', 'WN', 'B6', 'AC', 'WS'],
+    'Europe': ['BA', 'AF', 'LH', 'KL', 'LX', 'OS', 'IB', 'EI', 'FR', 'U2', 'AZ', 'TP', 'SK', 'AY'],
+    'Asia-Pacific': ['SQ', 'CX', 'NH', 'JL', 'TG', 'MH', 'GA', 'VN', 'PR', 'QF', 'NZ', 'KE', 'OZ', 'CI', 'BR', '6E', 'AI'],
+    'Middle East / Africa': ['EK', 'QR', 'EY', 'SV', 'TK', 'ET', 'KQ', 'SA'],
+    'Latin America': ['LA', 'AM', 'AD', 'AV', 'CM'],
+  };
+
+  const getRegionForCarrier = (code: string): string => {
+    for (const [region, codes] of Object.entries(REGION_MAP)) {
+      if (codes.includes(code.toUpperCase())) return region;
+    }
+    return 'Other';
+  };
+
+  const filteredRules = rules
+    .filter((rule) => {
+      const matchesSearch =
+        carrierSearch === '' ||
+        rule.carrier_name.toLowerCase().includes(carrierSearch.toLowerCase()) ||
+        rule.carrier_code.toLowerCase().includes(carrierSearch.toLowerCase());
+
+      const matchesRegion =
+        selectedRegion === 'All' ||
+        (selectedRegion === 'Favorites' ? favoriteIds.includes(rule.id) : getRegionForCarrier(rule.carrier_code) === selectedRegion);
+
+      return matchesSearch && matchesRegion;
+    })
+    .sort((a, b) => {
+      const aFav = favoriteIds.includes(a.id);
+      const bFav = favoriteIds.includes(b.id);
+      if (aFav && !bFav) return -1;
+      if (!aFav && bFav) return 1;
+      return a.carrier_name.localeCompare(b.carrier_name);
+    });
+
+  const selectedRule = rules.find((r) => r.id === selectedRuleId) || filteredRules[0] || rules[0];
 
   // Defensive fallback against undefined activeBag
   const bag = activeBag || DEFAULT_FALLBACK_BAG;
@@ -75,10 +136,7 @@ export const AirlineRulesView: React.FC<Props> = ({
   // Battery evaluation
   const batteryItems = packedItems.filter((i) => i.is_battery);
 
-  const formatDim = (cm: number) => {
-    if (unitSystem === 'metric') return `${cm.toFixed(1)} cm`;
-    return `${(cm / 2.54).toFixed(1)} in`;
-  };
+  const formatDim = (cm: number) => formatDimUtil(cm, unitSystem);
 
   return (
     <div style={{ padding: '0.5rem 0', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -119,33 +177,112 @@ export const AirlineRulesView: React.FC<Props> = ({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
         {/* Left Column: Carrier Selector & Gate Sizer Simulation */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Carrier Select Card */}
-          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1.1rem', boxShadow: 'var(--shadow-card)' }}>
-            <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-              TARGET AIRLINE REGULATION RULE
-            </label>
-            <select
-              value={selectedRule?.id}
-              onChange={(e) => setSelectedRuleId(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.65rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border-medium)',
-                background: 'var(--surface)',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            >
-              {rules.map((rule) => (
-                <option key={rule.id} value={rule.id}>
-                  {rule.carrier_name} ({rule.carrier_code}) — {rule.fare_class} [{rule.carry_on_length_cm}×{rule.carry_on_width_cm}×{rule.carry_on_depth_cm} cm]
-                </option>
-              ))}
-            </select>
+          {/* Carrier Select Card with Regional Filters and Favorite Pinning */}
+          <div style={{ background: 'var(--surface-card)', border: '1px solid var(--border-light)', borderRadius: '12px', padding: '1.1rem', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '11.5px', fontWeight: 600, color: 'var(--text-muted)' }}>
+                TARGET AIRLINE REGULATION RULE
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                <span>{filteredRules.length} carriers shown</span>
+              </div>
+            </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+            {/* Regional Filter Pills */}
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+              {(['All', 'Favorites', 'North America', 'Europe', 'Asia-Pacific', 'Middle East / Africa', 'Latin America'] as const).map((region) => {
+                const isSelected = selectedRegion === region;
+                return (
+                  <button
+                    key={region}
+                    onClick={() => setSelectedRegion(region)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '12px',
+                      border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border-medium, #cbd5e1)',
+                      background: isSelected ? 'var(--primary-container, #e0f2fe)' : 'var(--surface-dim, #f8fafc)',
+                      color: isSelected ? 'var(--primary, #0284c7)' : 'var(--text-secondary, #64748b)',
+                      fontSize: '10.5px',
+                      fontWeight: isSelected ? 700 : 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {region === 'Favorites' ? `★ Favs (${favoriteIds.length})` : region}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input and Carrier Selector */}
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+                <Search size={13} color="#94a3b8" style={{ position: 'absolute', left: '8px' }} />
+                <input
+                  type="text"
+                  placeholder="Filter by airline name or IATA code..."
+                  value={carrierSearch}
+                  onChange={(e) => setCarrierSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.65rem 0.45rem 1.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-medium)',
+                    background: 'var(--surface)',
+                    fontSize: '11.5px',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <select
+                value={selectedRule?.id}
+                onChange={(e) => setSelectedRuleId(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '0.65rem',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-medium)',
+                  background: 'var(--surface)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                }}
+              >
+                {filteredRules.map((rule) => {
+                  const isFav = favoriteIds.includes(rule.id);
+                  return (
+                    <option key={rule.id} value={rule.id}>
+                      {isFav ? '★ ' : ''}{rule.carrier_name} ({rule.carrier_code}) — {rule.fare_class} [{format3D(rule.carry_on_length_cm, rule.carry_on_width_cm, rule.carry_on_depth_cm, unitSystem)}]
+                    </option>
+                  );
+                })}
+              </select>
+
+              {selectedRule && (
+                <button
+                  onClick={() => toggleFavorite(selectedRule.id)}
+                  style={{
+                    padding: '0.6rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-medium)',
+                    background: favoriteIds.includes(selectedRule.id) ? '#fef3c7' : 'var(--surface-dim)',
+                    color: favoriteIds.includes(selectedRule.id) ? '#d97706' : '#94a3b8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title={favoriteIds.includes(selectedRule.id) ? 'Remove carrier from favorites' : 'Pin carrier to favorites'}
+                >
+                  <Star size={16} fill={favoriteIds.includes(selectedRule.id) ? '#d97706' : 'none'} />
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
               <span>Verified: {selectedRule?.verified_at}</span>
+              <span>Region: {getRegionForCarrier(selectedRule?.carrier_code || '')}</span>
               <span>Class: {selectedRule?.fare_class}</span>
             </div>
           </div>
@@ -230,7 +367,7 @@ export const AirlineRulesView: React.FC<Props> = ({
                 </text>
                 {bag.is_expanded && (
                   <text x="120" y="108" textAnchor="middle" fontSize="9.5" fontWeight="600" fill="#d97706">
-                    (Zipper Expanded: +{bag.expansion_gusset_cm} cm)
+                    (Zipper Expanded: +{formatDim(bag.expansion_gusset_cm)})
                   </text>
                 )}
               </svg>
@@ -241,33 +378,33 @@ export const AirlineRulesView: React.FC<Props> = ({
               <div style={{ background: 'var(--surface)', padding: '6px', borderRadius: '6px', textAlign: 'center' }}>
                 <span style={{ color: 'var(--text-muted)', display: 'block' }}>LENGTH</span>
                 <span style={{ fontWeight: 700, color: fitsLength ? '#059669' : '#dc2626' }}>
-                  {fitsLength ? '✓ Fit' : `+${diffL.toFixed(1)} cm`}
+                  {fitsLength ? '✓ Fit' : `+${formatDim(diffL)}`}
                 </span>
-                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {limitL} cm</span>
+                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {formatDim(limitL)}</span>
               </div>
 
               <div style={{ background: 'var(--surface)', padding: '6px', borderRadius: '6px', textAlign: 'center' }}>
                 <span style={{ color: 'var(--text-muted)', display: 'block' }}>WIDTH</span>
                 <span style={{ fontWeight: 700, color: fitsWidth ? '#059669' : '#dc2626' }}>
-                  {fitsWidth ? '✓ Fit' : `+${diffW.toFixed(1)} cm`}
+                  {fitsWidth ? '✓ Fit' : `+${formatDim(diffW)}`}
                 </span>
-                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {limitW} cm</span>
+                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {formatDim(limitW)}</span>
               </div>
 
               <div style={{ background: 'var(--surface)', padding: '6px', borderRadius: '6px', textAlign: 'center' }}>
                 <span style={{ color: 'var(--text-muted)', display: 'block' }}>DEPTH</span>
                 <span style={{ fontWeight: 700, color: fitsDepth ? '#059669' : '#dc2626' }}>
-                  {fitsDepth ? '✓ Fit' : `+${diffD.toFixed(1)} cm`}
+                  {fitsDepth ? '✓ Fit' : `+${formatDim(diffD)}`}
                 </span>
-                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {limitD} cm</span>
+                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Max: {formatDim(limitD)}</span>
               </div>
 
               <div style={{ background: 'var(--surface)', padding: '6px', borderRadius: '6px', textAlign: 'center' }}>
                 <span style={{ color: 'var(--text-muted)', display: 'block' }}>MASS</span>
                 <span style={{ fontWeight: 700, color: fitsWeight ? '#059669' : '#dc2626' }}>
-                  {diffKg !== undefined ? (fitsWeight ? '✓ Fit' : `+${diffKg.toFixed(1)} kg`) : 'No Limit'}
+                  {diffKg !== undefined ? (fitsWeight ? '✓ Fit' : `+${formatMassKg(diffKg, unitSystem)}`) : 'No Limit'}
                 </span>
-                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Bag: {totalBagWeightKg.toFixed(1)} kg</span>
+                <span style={{ fontSize: '9.5px', color: 'var(--text-muted)' }}>Bag: {formatMassKg(totalBagWeightKg, unitSystem)}</span>
               </div>
             </div>
           </div>

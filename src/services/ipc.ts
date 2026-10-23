@@ -339,6 +339,21 @@ export const ipc = {
     return { ...fallback.plan };
   },
 
+  async getAllTripPlans(): Promise<TripPlan[]> {
+    if (isTauriEnvironment()) {
+      const res = await invoke<TripPlan[]>('get_all_trip_plans');
+      return v.parse(v.array(TripPlanSchema), res) as TripPlan[];
+    }
+    return [{ ...fallback.plan }];
+  },
+
+  async deleteTripPlan(id: string): Promise<boolean> {
+    if (isTauriEnvironment()) {
+      return await invoke<boolean>('delete_trip_plan', { id });
+    }
+    return true;
+  },
+
   async saveTripPlan(plan: TripPlan): Promise<TripPlan> {
     if (isTauriEnvironment()) {
       const res = await invoke<TripPlan>('save_trip_plan', { plan });

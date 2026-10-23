@@ -96,8 +96,9 @@ export interface CatalogProduct {
   battery_wh: number;
   monetary_value: number;
   currency: string;
-  source: 'offline_catalog' | 'online_upcitemdb';
+  source: 'offline_catalog' | 'online_retail';
   tags?: string | undefined;
+  thumbnail?: string | undefined;
 }
 
 export interface CatalogBag {

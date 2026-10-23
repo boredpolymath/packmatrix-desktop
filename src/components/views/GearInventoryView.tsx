@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import type { InventoryItem, SubContainer, ReadinessState, ItemCategory, UnitSystem, CatalogProduct } from '../../types';
 import { useVirtualScroll } from '../../hooks/useVirtualScroll';
 import { ProductSearchAutocomplete } from '../common/ProductSearchAutocomplete';
+import { G_TO_OZ, OZ_TO_G } from '../../utils/units';
 import {
   Search,
   Plus,
@@ -10,6 +11,10 @@ import {
   Droplet,
   Undo2,
   Redo2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Download,
 } from 'lucide-react';
 
 interface Props {
@@ -64,12 +69,14 @@ export const GearInventoryView: React.FC<Props> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isCompact, setIsCompact] = useState(false);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [sortField, setSortField] = useState<'name' | 'category' | 'weight_g' | 'monetary_value' | 'readiness_state'>('name');
+  const [sortAsc, setSortAsc] = useState<boolean>(true);
 
   // New item form state
   const [newName, setNewName] = useState('');
   const [newBrand, setNewBrand] = useState('');
   const [newCategory, setNewCategory] = useState<ItemCategory>('Tech');
-  const [newWeightG, setNewWeightG] = useState(250);
+  const [displayWeight, setDisplayWeight] = useState(unitSystem === 'imperial' ? '8.8' : '250');
   const [newValue, setNewValue] = useState(99);
   const [newReadiness, setNewReadiness] = useState<ReadinessState>('In Closet');
   const [newTags, setNewTags] = useState('');
@@ -85,7 +92,7 @@ export const GearInventoryView: React.FC<Props> = ({
     setNewName(product.name);
     setNewBrand(product.brand);
     setNewCategory(product.category);
-    setNewWeightG(product.weight_g);
+    setDisplayWeight(unitSystem === 'metric' ? product.weight_g.toString() : (product.weight_g * G_TO_OZ).toFixed(1));
     setNewValue(product.monetary_value || 99);
     setNewLengthCm(product.length_cm);
     setNewWidthCm(product.width_cm);
@@ -99,9 +106,70 @@ export const GearInventoryView: React.FC<Props> = ({
     }
   };
 
-  // Filtering
+  const handleInstantAddProduct = (product: CatalogProduct) => {
+    const newItem: InventoryItem = {
+      id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: product.name,
+      brand: product.brand || undefined,
+      category: product.category,
+      weight_g: Number(product.weight_g),
+      length_cm: Number(product.length_cm),
+      width_cm: Number(product.width_cm),
+      depth_cm: Number(product.depth_cm),
+      compressibility_factor: product.compressibility_factor || (product.category === 'Clothing' ? 0.6 : 1.0),
+      is_liquid: product.is_liquid,
+      liquid_volume_ml: Number(product.liquid_volume_ml || 0),
+      monetary_value: Number(product.monetary_value || 99),
+      currency: 'USD',
+      readiness_state: 'In Closet',
+      tags: product.tags || undefined,
+      packed: false,
+      is_battery: product.is_battery,
+      battery_wh: Number(product.battery_wh || 0),
+    };
+
+    onAddItem(newItem);
+    setIsNewModalOpen(false);
+  };
+
+  const handleSort = (field: 'name' | 'category' | 'weight_g' | 'monetary_value' | 'readiness_state') => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(true);
+    }
+  };
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { All: items.length };
+    CATEGORIES.forEach((cat) => {
+      counts[cat] = items.filter((i) => i.category === cat).length;
+    });
+    return counts;
+  }, [items]);
+
+  const handleDownloadSampleCsv = () => {
+    const headers = 'Name,Brand,Category,Weight_g,Value_USD,Readiness_State,Length_cm,Width_cm,Depth_cm,Is_Liquid,Liquid_ml,Is_Battery,Battery_wh,Tags';
+    const rows = [
+      'MacBook Pro 14",Apple,Tech,1600,1999,Packed,31.2,22.1,1.55,false,0,true,70,laptop work tech',
+      'Merino Wool T-Shirt,Icebreaker,Clothing,160,75,Packed,25,18,3,false,0,false,0,apparel base-layer',
+      'Sonicare Toothbrush,Philips,Toiletries,140,89,Staged,20,3,3,false,0,true,2,hygiene bathroom',
+      'Trail Running Shoes,Hoka,Footwear,620,140,In Closet,30,20,12,false,0,false,0,shoes runners',
+    ].join('\n');
+    const csvContent = `${headers}\n${rows}`;
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'packmatrix-gear-inventory-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Filtering and Sorting
   const filteredItems = useMemo(() => {
-    return items.filter((item) => {
+    const result = items.filter((item) => {
       const matchesSearch =
         searchQuery === '' ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -113,7 +181,19 @@ export const GearInventoryView: React.FC<Props> = ({
 
       return matchesSearch && matchesCat && matchesReady;
     });
-  }, [items, searchQuery, selectedCategory, selectedReadiness]);
+
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sortField === 'category') cmp = a.category.localeCompare(b.category);
+      else if (sortField === 'weight_g') cmp = a.weight_g - b.weight_g;
+      else if (sortField === 'monetary_value') cmp = (a.monetary_value || 0) - (b.monetary_value || 0);
+      else if (sortField === 'readiness_state') cmp = a.readiness_state.localeCompare(b.readiness_state);
+      return sortAsc ? cmp : -cmp;
+    });
+
+    return result;
+  }, [items, searchQuery, selectedCategory, selectedReadiness, sortField, sortAsc]);
 
   // SDLC 7.3: Virtualized List Rendering (O(1) DOM footprint for 10,000+ items at 60 FPS)
   const rowHeight = isCompact ? 32 : 44;
@@ -168,12 +248,14 @@ export const GearInventoryView: React.FC<Props> = ({
     e.preventDefault();
     if (!newName.trim()) return;
 
+    const finalWeightG = unitSystem === 'metric' ? Math.round(parseFloat(displayWeight) || 0) : Math.round((parseFloat(displayWeight) || 0) * OZ_TO_G);
+
     const newItem: InventoryItem = {
       id: `item-${Date.now()}`,
       name: newName.trim(),
       brand: newBrand.trim() || undefined,
       category: newCategory,
-      weight_g: Number(newWeightG),
+      weight_g: finalWeightG,
       length_cm: Number(newLengthCm),
       width_cm: Number(newWidthCm),
       depth_cm: Number(newDepthCm),
@@ -366,6 +448,27 @@ export const GearInventoryView: React.FC<Props> = ({
           </button>
 
           <button
+            onClick={handleDownloadSampleCsv}
+            title="Download a starter CSV template formatted for PackMatrix gear ingestion"
+            style={{
+              padding: '0.5rem 0.75rem',
+              borderRadius: '6px',
+              border: '1px solid var(--border-medium)',
+              background: 'var(--surface-card)',
+              color: 'var(--text-secondary)',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <Download size={12} />
+            <span>Sample CSV</span>
+          </button>
+
+          <button
             onClick={() => {
               const syntheticItems: InventoryItem[] = [];
               const categories: ItemCategory[] = ['Tech', 'Clothing', 'Toiletries', 'Footwear', 'Documents', 'Misc'];
@@ -430,6 +533,48 @@ export const GearInventoryView: React.FC<Props> = ({
             <span>Add Gear Item</span>
           </button>
         </div>
+      </div>
+
+      {/* Category Filter Chips */}
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, marginRight: '2px' }}>CATEGORIES:</span>
+        {(['All', ...CATEGORIES] as const).map((cat) => {
+          const isSelected = selectedCategory === cat;
+          const count = categoryCounts[cat] || 0;
+          return (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '3px 9px',
+                borderRadius: '16px',
+                border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border-medium, #cbd5e1)',
+                background: isSelected ? 'var(--primary-container, #e0f2fe)' : 'var(--surface-dim, #f8fafc)',
+                color: isSelected ? 'var(--primary, #0284c7)' : 'var(--text-secondary, #64748b)',
+                fontSize: '11px',
+                fontWeight: isSelected ? 700 : 500,
+                cursor: 'pointer',
+                transition: 'all 0.1s ease',
+              }}
+            >
+              <span>{cat}</span>
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '1px 5px',
+                  borderRadius: '10px',
+                  background: isSelected ? 'rgba(2, 132, 199, 0.2)' : 'rgba(100, 116, 139, 0.12)',
+                  color: isSelected ? 'var(--primary)' : 'inherit',
+                }}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {filteredItems.length > 50 && (
@@ -554,12 +699,57 @@ export const GearInventoryView: React.FC<Props> = ({
                   style={{ cursor: 'pointer' }}
                 />
               </th>
-              <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>GEAR ITEM</th>
-              <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>CATEGORY</th>
-              <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>MASS</th>
+              <th
+                onClick={() => handleSort('name')}
+                style={{ padding: isCompact ? '4px 8px' : '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                title="Sort by item name"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>GEAR ITEM</span>
+                  {sortField === 'name' ? (sortAsc ? <ArrowUp size={12} color="var(--primary)" /> : <ArrowDown size={12} color="var(--primary)" />) : <ArrowUpDown size={11} color="#94a3b8" />}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('category')}
+                style={{ padding: isCompact ? '4px 8px' : '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                title="Sort by category"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>CATEGORY</span>
+                  {sortField === 'category' ? (sortAsc ? <ArrowUp size={12} color="var(--primary)" /> : <ArrowDown size={12} color="var(--primary)" />) : <ArrowUpDown size={11} color="#94a3b8" />}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('weight_g')}
+                style={{ padding: isCompact ? '4px 8px' : '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                title="Sort by mass"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>MASS</span>
+                  {sortField === 'weight_g' ? (sortAsc ? <ArrowUp size={12} color="var(--primary)" /> : <ArrowDown size={12} color="var(--primary)" />) : <ArrowUpDown size={11} color="#94a3b8" />}
+                </div>
+              </th>
               <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>SUB-CONTAINER</th>
-              <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>READINESS STATE</th>
-              <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>VALUE</th>
+              <th
+                onClick={() => handleSort('readiness_state')}
+                style={{ padding: isCompact ? '4px 8px' : '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                title="Sort by readiness state"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>READINESS STATE</span>
+                  {sortField === 'readiness_state' ? (sortAsc ? <ArrowUp size={12} color="var(--primary)" /> : <ArrowDown size={12} color="var(--primary)" />) : <ArrowUpDown size={11} color="#94a3b8" />}
+                </div>
+              </th>
+              <th
+                onClick={() => handleSort('monetary_value')}
+                style={{ padding: isCompact ? '4px 8px' : '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+                title="Sort by monetary value"
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>VALUE</span>
+                  {sortField === 'monetary_value' ? (sortAsc ? <ArrowUp size={12} color="var(--primary)" /> : <ArrowDown size={12} color="var(--primary)" />) : <ArrowUpDown size={11} color="#94a3b8" />}
+                </div>
+              </th>
               <th style={{ padding: isCompact ? '4px 8px' : '8px 12px' }}>TAGS</th>
             </tr>
           </thead>
@@ -622,8 +812,13 @@ export const GearInventoryView: React.FC<Props> = ({
                   <td style={{ padding: isCompact ? '4px 8px' : '7px 12px', fontWeight: 600 }}>
                     <input
                       type="number"
-                      value={item.weight_g}
-                      onChange={(e) => onUpdateItem({ ...item, weight_g: parseFloat(e.target.value) || 0 })}
+                      step={unitSystem === 'metric' ? '1' : '0.1'}
+                      value={unitSystem === 'metric' ? item.weight_g : Number((item.weight_g * G_TO_OZ).toFixed(1))}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        const finalG = unitSystem === 'metric' ? Math.round(val) : Math.round(val * OZ_TO_G);
+                        onUpdateItem({ ...item, weight_g: finalG });
+                      }}
                       style={{
                         width: '70px',
                         padding: '2px 4px',
@@ -765,8 +960,12 @@ export const GearInventoryView: React.FC<Props> = ({
           >
             <h3 style={{ fontSize: '16px', fontWeight: 700 }}>Add Gear Item to Inventory</h3>
             
-            {/* SDLC Instant Product Catalog Autocomplete (Local-First + UPCitemdb) */}
-            <ProductSearchAutocomplete onSelectProduct={handleSelectCatalogProduct} unitSystem={unitSystem} />
+            {/* SDLC Instant Product Catalog Autocomplete (Local-First Spec Lookup) */}
+            <ProductSearchAutocomplete
+              onSelectProduct={handleSelectCatalogProduct}
+              onInstantAddProduct={handleInstantAddProduct}
+              unitSystem={unitSystem}
+            />
 
             <form onSubmit={handleCreateItem} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               <div>
@@ -810,11 +1009,14 @@ export const GearInventoryView: React.FC<Props> = ({
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>Weight (g)</label>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, marginBottom: '3px' }}>
+                    Weight ({unitSystem === 'metric' ? 'g' : 'oz'})
+                  </label>
                   <input
                     type="number"
-                    value={newWeightG}
-                    onChange={(e) => setNewWeightG(parseFloat(e.target.value) || 0)}
+                    step={unitSystem === 'metric' ? '1' : '0.1'}
+                    value={displayWeight}
+                    onChange={(e) => setDisplayWeight(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
                   />
                 </div>
