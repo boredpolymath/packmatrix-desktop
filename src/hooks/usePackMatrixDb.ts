@@ -71,7 +71,23 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
 
         if (!isMounted) return;
 
-        const activeId = plan?.active_luggage_shell_id || bags[0]?.id || '';
+        const activeTripId = typeof localStorage !== 'undefined' ? localStorage.getItem('packmatrix_active_trip_id') : null;
+        let chosenPlan: TripPlan | null = null;
+        if (allPlans && allPlans.length > 0) {
+          setTripPlans(allPlans);
+          chosenPlan = (activeTripId && allPlans.find((p) => p.id === activeTripId)) || plan || allPlans[0];
+        } else if (plan) {
+          setTripPlans([plan]);
+          chosenPlan = plan;
+        }
+
+        if (chosenPlan) {
+          setTripPlan(chosenPlan);
+          const tripAllocs = await ipc.getTripAllocations(chosenPlan.id).catch(() => []);
+          if (isMounted) setAllocations(tripAllocs);
+        }
+
+        const activeId = chosenPlan?.active_luggage_shell_id || bags[0]?.id || '';
         resetHistory({
           bags,
           activeBagId: activeId,
@@ -79,17 +95,6 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
           items,
         });
 
-        if (allPlans && allPlans.length > 0) {
-          setTripPlans(allPlans);
-        } else if (plan) {
-          setTripPlans([plan]);
-        }
-
-        if (plan) {
-          setTripPlan(plan);
-          const tripAllocs = await ipc.getTripAllocations(plan.id).catch(() => []);
-          if (isMounted) setAllocations(tripAllocs);
-        }
         setCarrierEnvelopes(carriers);
       } catch (err) {
         if (isMounted) {
@@ -194,13 +199,14 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
       };
       executeCommand(cmd);
 
-      if (tripPlan) {
-        const updatedPlan: TripPlan = { ...tripPlan, active_luggage_shell_id: bagId };
-        setTripPlan(updatedPlan);
+      setTripPlan((currPlan) => {
+        if (!currPlan || currPlan.active_luggage_shell_id === bagId) return currPlan;
+        const updatedPlan: TripPlan = { ...currPlan, active_luggage_shell_id: bagId };
         ipc.saveTripPlan(updatedPlan).catch(() => {});
-      }
+        return updatedPlan;
+      });
     },
-    [state.activeBagId, tripPlan, executeCommand]
+    [state.activeBagId, executeCommand]
   );
 
   const handleAddBag = useCallback(
@@ -525,13 +531,23 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
       const target = tripPlans.find((t) => t.id === tripId);
       if (!target) return;
       setTripPlan(target);
-      if (target.active_luggage_shell_id) {
-        handleSelectActiveBag(target.active_luggage_shell_id);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('packmatrix_active_trip_id', tripId);
+      }
+      if (target.active_luggage_shell_id && target.active_luggage_shell_id !== state.activeBagId) {
+        const bagId = target.active_luggage_shell_id;
+        const previousId = state.activeBagId;
+        const cmd: Command<{ bags: LuggageShell[]; activeBagId: string; cubes: SubContainer[]; items: InventoryItem[] }> = {
+          description: `Switch active luggage to ${bagId}`,
+          apply: (curr) => ({ ...curr, activeBagId: bagId }),
+          rollback: (curr) => ({ ...curr, activeBagId: previousId }),
+        };
+        executeCommand(cmd);
       }
       const allocs = await ipc.getTripAllocations(target.id).catch(() => []);
       setAllocations(allocs);
     },
-    [tripPlans, handleSelectActiveBag]
+    [tripPlans, state.activeBagId, executeCommand]
   );
 
   const handleCreateTrip = useCallback(
@@ -541,14 +557,26 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
         const saved = await ipc.saveTripPlan(newTrip);
         setTripPlans((curr) => [saved, ...curr.filter((t) => t.id !== saved.id)]);
         setTripPlan(saved);
-        if (saved.active_luggage_shell_id) {
-          handleSelectActiveBag(saved.active_luggage_shell_id);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('packmatrix_active_trip_id', saved.id);
         }
+        if (saved.active_luggage_shell_id && saved.active_luggage_shell_id !== state.activeBagId) {
+          const bagId = saved.active_luggage_shell_id;
+          const previousId = state.activeBagId;
+          const cmd: Command<{ bags: LuggageShell[]; activeBagId: string; cubes: SubContainer[]; items: InventoryItem[] }> = {
+            description: `Switch active luggage to ${bagId}`,
+            apply: (curr) => ({ ...curr, activeBagId: bagId }),
+            rollback: (curr) => ({ ...curr, activeBagId: previousId }),
+          };
+          executeCommand(cmd);
+        }
+        const allocs = await ipc.getTripAllocations(saved.id).catch(() => []);
+        setAllocations(allocs);
       } catch (err) {
         setErrorMessage(`Failed to create trip plan: ${err}`);
       }
     },
-    [checkWriteAllowed, handleSelectActiveBag]
+    [checkWriteAllowed, state.activeBagId, executeCommand]
   );
 
   const handleDeleteTrip = useCallback(
@@ -563,16 +591,40 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
         const remaining = tripPlans.filter((t) => t.id !== tripId);
         setTripPlans(remaining);
         if (tripPlan?.id === tripId && remaining[0]) {
-          setTripPlan(remaining[0]);
-          if (remaining[0].active_luggage_shell_id) {
-            handleSelectActiveBag(remaining[0].active_luggage_shell_id);
+          const nextPlan = remaining[0];
+          setTripPlan(nextPlan);
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('packmatrix_active_trip_id', nextPlan.id);
           }
+          if (nextPlan.active_luggage_shell_id && nextPlan.active_luggage_shell_id !== state.activeBagId) {
+            const bagId = nextPlan.active_luggage_shell_id;
+            const previousId = state.activeBagId;
+            const cmd: Command<{ bags: LuggageShell[]; activeBagId: string; cubes: SubContainer[]; items: InventoryItem[] }> = {
+              description: `Switch active luggage to ${bagId}`,
+              apply: (curr) => ({ ...curr, activeBagId: bagId }),
+              rollback: (curr) => ({ ...curr, activeBagId: previousId }),
+            };
+            executeCommand(cmd);
+          }
+          const allocs = await ipc.getTripAllocations(nextPlan.id).catch(() => []);
+          setAllocations(allocs);
         }
       } catch (err) {
         setErrorMessage(`Failed to delete trip: ${err}`);
       }
     },
-    [checkWriteAllowed, tripPlans, tripPlan, handleSelectActiveBag]
+    [checkWriteAllowed, tripPlans, tripPlan, state.activeBagId, executeCommand]
+  );
+
+  const handleUpdateTripRule = useCallback(
+    async (ruleId: string) => {
+      if (!tripPlan) return;
+      const updated: TripPlan = { ...tripPlan, target_airline_rule_id: ruleId };
+      setTripPlan(updated);
+      setTripPlans((curr) => curr.map((t) => (t.id === updated.id ? updated : t)));
+      await ipc.saveTripPlan(updated).catch(() => {});
+    },
+    [tripPlan]
   );
 
   return {
@@ -600,6 +652,7 @@ export function usePackMatrixDb(isReadOnlyMode = false) {
     handleSelectTrip,
     handleCreateTrip,
     handleDeleteTrip,
+    handleUpdateTripRule,
     handleUpdateItem,
     handleAddItem,
     handleBatchUpdateState,

@@ -16,9 +16,9 @@ interface Props {
   activeBagId: string;
   onSelectActiveBag: (id: string) => void;
   onAddBag: (bag: LuggageShell) => void;
-  onUpdateBag?: (bag: LuggageShell) => void;
-  onDuplicateBag?: (bag: LuggageShell) => void;
-  onDeleteBag?: (bagId: string) => void;
+  onUpdateBag?: ((bag: LuggageShell) => void) | undefined;
+  onDuplicateBag?: ((bag: LuggageShell) => void) | undefined;
+  onDeleteBag?: ((bagId: string) => void) | undefined;
   unitSystem: UnitSystem;
 }
 
@@ -678,7 +678,8 @@ export const SavedBagsView: React.FC<Props> = ({
                     </label>
                     <input
                       type="number"
-                      step={unitSystem === 'metric' ? '10' : '0.05'}
+                      step="any"
+                      min="0"
                       value={displayTare}
                       onChange={(e) => setDisplayTare(e.target.value)}
                       style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}

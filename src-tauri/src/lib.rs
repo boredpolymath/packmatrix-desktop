@@ -503,6 +503,16 @@ fn toggle_allocation_packed(
         .map_err(|e| security::AppError::Storage(e.to_string()))
 }
 
+#[tauri::command]
+fn print_travel_manifest(window: tauri::WebviewWindow) -> Result<(), security::AppError> {
+    if let Err(e) = window.print() {
+        window.eval("window.print();").map_err(|e2| {
+            security::AppError::Storage(format!("Print failed: {e}, eval fallback failed: {e2}"))
+        })?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -563,6 +573,7 @@ pub fn run() {
             get_trip_allocations,
             save_item_allocation,
             toggle_allocation_packed,
+            print_travel_manifest,
             auto_pack_heuristic
         ])
         .run(tauri::generate_context!())

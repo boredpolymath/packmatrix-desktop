@@ -473,7 +473,8 @@ export const PackingCubesView: React.FC<Props> = ({
                   </label>
                   <input
                     type="number"
-                    step={unitSystem === 'metric' ? '1' : '0.1'}
+                    step="any"
+                    min="0"
                     value={displayTare}
                     onChange={(e) => setDisplayTare(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}

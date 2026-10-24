@@ -1,16 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Luggage,
   Menu,
   Search,
   Briefcase,
-  Box,
   FileText,
   CheckCircle2,
   Plane,
   ChevronDown,
   Gauge,
-  WifiOff,
   Lock,
   AlertTriangle,
   ShieldCheck,
@@ -22,6 +20,8 @@ import {
   LifeBuoy,
   Settings,
   Plus,
+  Printer,
+  X,
 } from 'lucide-react';
 import type {
   LuggageShell,
@@ -32,27 +32,29 @@ import { AIRLINE_RULES_DATABASE } from './utils/data';
 import { usePackMatrixDb } from './hooks/usePackMatrixDb';
 import { ipc } from './services/ipc';
 import { MyPackingView } from './components/views/MyPackingView';
-import { SavedBagsView } from './components/views/SavedBagsView';
-import { PackingCubesView } from './components/views/PackingCubesView';
+import { LuggageContainersView } from './components/views/LuggageContainersView';
 import { GearInventoryView } from './components/views/GearInventoryView';
 import { AirlineRulesView } from './components/views/AirlineRulesView';
 import { TripDocumentsView } from './components/views/TripDocumentsView';
-import { SettingsModal } from './components/common/SettingsModal';
+import { SettingsView } from './components/views/SettingsView';
 import { NewTripModal } from './components/common/NewTripModal';
+import { PrintableManifest } from './components/common/PrintableManifest';
 
 export function App() {
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('metric');
   const [currency, setCurrency] = useState('USD');
   const [sizerStrictness, setSizerStrictness] = useState<'strict' | 'squeeze'>('strict');
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isNewTripModalOpen, setIsNewTripModalOpen] = useState(false);
   const [isTripMenuOpen, setIsTripMenuOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<
-    'My Packing' | 'Saved Bags' | 'Packing Cubes' | 'Airline Baggage Rules' | 'Gear Checklist' | 'Trip Documents'
+    'My Packing' | 'Luggage & Containers' | 'Gear Checklist' | 'Trip Documents' | 'Settings' | 'Saved Bags' | 'Packing Cubes' | 'Airline Baggage Rules'
   >('My Packing');
+  const [containersSubTab, setContainersSubTab] = useState<'bags' | 'cubes'>('bags');
   const [globalSearch, setGlobalSearch] = useState('');
   const [displayScale, setDisplayScale] = useState<'100%' | '125%' | '150%' | '200%'>('100%');
   const [isBenchmarkModalOpen, setIsBenchmarkModalOpen] = useState(false);
+  const [isPrintManifestModalOpen, setIsPrintManifestModalOpen] = useState(false);
+  const [isPrintingManifest, setIsPrintingManifest] = useState(false);
   const [diagnosticsTab, setDiagnosticsTab] = useState<'7.3' | '7.5' | '8.0'>('7.3');
   const [diagReport, setDiagReport] = useState<{
     quick_check: string;
@@ -99,6 +101,7 @@ export function App() {
     handleSelectTrip,
     handleCreateTrip,
     handleDeleteTrip,
+    handleUpdateTripRule,
     handleUpdateItem,
     handleAddItem,
     handleBatchUpdateState,
@@ -142,8 +145,18 @@ export function App() {
     }
   };
 
-  // Active airline rule
-  const activeAirlineRule = AIRLINE_RULES_DATABASE[0];
+  // Active airline rule evaluated against selected trip plan
+  const activeAirlineRule = useMemo(() => {
+    if (tripPlan?.target_airline_rule_id) {
+      const match = AIRLINE_RULES_DATABASE.find((r) => r.id === tripPlan.target_airline_rule_id);
+      if (match) return match;
+    }
+    return AIRLINE_RULES_DATABASE[0];
+  }, [tripPlan]);
+
+  const handlePrintManifest = useCallback(() => {
+    setIsPrintManifestModalOpen(true);
+  }, []);
 
   // Keyboard navigation shortcuts (SDLC Section 3.7)
   useEffect(() => {
@@ -164,11 +177,27 @@ export function App() {
         const searchInput = document.getElementById('global-search-input');
         searchInput?.focus();
       }
+      // Cmd+P / Ctrl+P: Print customs travel manifest
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        handlePrintManifest();
+      }
+      // Cmd+, / Ctrl+,: Open Preferences / Settings
+      else if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        setActiveNav('Settings');
+      }
       // 1 to 6 numbers for fast view navigation when not typing
       else if (!e.metaKey && !e.ctrlKey && (e.target as HTMLElement).tagName !== 'INPUT' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
         if (e.key === '1') setActiveNav('My Packing');
-        if (e.key === '2') setActiveNav('Saved Bags');
-        if (e.key === '3') setActiveNav('Packing Cubes');
+        if (e.key === '2') {
+          setActiveNav('Luggage & Containers');
+          setContainersSubTab('bags');
+        }
+        if (e.key === '3') {
+          setActiveNav('Luggage & Containers');
+          setContainersSubTab('cubes');
+        }
         if (e.key === '4') setActiveNav('Airline Baggage Rules');
         if (e.key === '5') setActiveNav('Gear Checklist');
         if (e.key === '6') setActiveNav('Trip Documents');
@@ -177,7 +206,40 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo]);
+  }, [undo, redo, handlePrintManifest]);
+
+  const handleExportVault = useCallback(() => {
+    const backupPackage = {
+      version: '1.0.0',
+      exported_at: new Date().toISOString(),
+      luggage: state.bags,
+      inventory: state.items,
+      cubes: state.cubes,
+      tripPlans,
+    };
+    const content = JSON.stringify(backupPackage, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `packmatrix-vault-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [state.bags, state.items, state.cubes, tripPlans]);
+
+  const handleSecureWipe = useCallback(async () => {
+    if (confirm('Execute Secure Wipe & Reset? This will overwrite local storage with zeroes.')) {
+      try {
+        setIsPerformingWipe(true);
+        await ipc.executeSecureWipe();
+        setOperationsNotice('Cryptographic zero-fill executed: 1,048,576 bytes zeroized across database files. Reset complete.');
+      } catch (err) {
+        setOperationsNotice(`Secure wipe failed: ${err}`);
+      } finally {
+        setIsPerformingWipe(false);
+      }
+    }
+  }, []);
 
   const handleImportItems = useCallback(
     (newItems: InventoryItem[]) => {
@@ -265,56 +327,13 @@ export function App() {
         </div>
 
         <div className="header-right">
-          {/* Display Scaling Factor Selector (SDLC 7.3 Layout Responsiveness) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 600 }}>SCALE</span>
-            <select
-              value={displayScale}
-              onChange={(e) => setDisplayScale(e.target.value as '100%' | '125%' | '150%' | '200%')}
-              style={{
-                padding: '3px 6px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-medium)',
-                background: 'var(--surface-dim)',
-                fontSize: '11px',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-              }}
-              title="Test layout scaling stability across display DPIs (100%, 125%, 150%, 200%)"
-            >
-              <option value="100%">100% Scale</option>
-              <option value="125%">125% Scale</option>
-              <option value="150%">150% Scale</option>
-              <option value="200%">200% Scale</option>
-            </select>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '3px 8px',
-              borderRadius: '6px',
-              border: '1px solid rgba(16, 185, 129, 0.25)',
-              background: 'rgba(16, 185, 129, 0.08)',
-              fontSize: '11px',
-              color: 'var(--accent-green)',
-              fontWeight: 600,
-            }}
-            title="SDLC 7.5: Network Air-Gap Verified — 100% offline, zero telemetry/sockets"
-          >
-            <WifiOff size={12} />
-            <span>Air-Gap Isolated</span>
-          </div>
-
           {isReadOnlyMode && (
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '5px',
-                padding: '3px 8px',
+                padding: '4px 8px',
                 borderRadius: '6px',
                 border: '1px solid rgba(245, 158, 11, 0.35)',
                 background: 'rgba(245, 158, 11, 0.12)',
@@ -330,49 +349,6 @@ export function App() {
               <span>Read-Only Mode</span>
             </div>
           )}
-
-          <button
-            onClick={() => setIsBenchmarkModalOpen(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 8px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-medium)',
-              background: 'var(--surface-dim)',
-              fontSize: '11px',
-              color: 'var(--accent-teal)',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-            title="Open SDLC 7.3 & 7.5 Diagnostics Matrix"
-          >
-            <Gauge size={13} />
-            <span>Diagnostics</span>
-          </button>
-
-          <button
-            onClick={() => setIsSettingsModalOpen(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 8px',
-              borderRadius: '6px',
-              border: '1px solid var(--border-medium)',
-              background: 'var(--surface-dim)',
-              fontSize: '11px',
-              color: 'var(--text-primary)',
-              cursor: 'pointer',
-              fontWeight: 600,
-            }}
-            title="Preferences & Settings (Units, Strictness, APIs, Security)"
-            aria-label="Open Preferences"
-          >
-            <Settings size={13} />
-            <span>Settings</span>
-          </button>
 
           <div className="unit-switch">
             <span
@@ -559,39 +535,107 @@ export function App() {
             </div>
 
             <div
-              className={`nav-item ${activeNav === 'Saved Bags' ? 'active' : ''}`}
-              onClick={() => setActiveNav('Saved Bags')}
+              className={`nav-item ${
+                activeNav === 'Luggage & Containers' || activeNav === 'Saved Bags' || activeNav === 'Packing Cubes'
+                  ? 'active'
+                  : ''
+              }`}
+              onClick={() => setActiveNav('Luggage & Containers')}
               role="button"
               tabIndex={0}
             >
               <Luggage size={16} />
-              <span>Saved Bags</span>
+              <span>Luggage &amp; Containers</span>
               <span className="nav-badge" style={{ background: 'var(--surface-dim)', color: 'var(--text-secondary)' }}>
-                {state.bags.length}
+                {state.bags.length + state.cubes.length}
               </span>
             </div>
 
+            {/* Sub-navigation for quick access */}
             <div
-              className={`nav-item ${activeNav === 'Packing Cubes' ? 'active' : ''}`}
-              onClick={() => setActiveNav('Packing Cubes')}
-              role="button"
-              tabIndex={0}
+              style={{
+                display: 'flex',
+                gap: '4px',
+                paddingLeft: '1.75rem',
+                paddingRight: '0.75rem',
+                marginTop: '-4px',
+                marginBottom: '6px',
+              }}
             >
-              <Box size={16} />
-              <span>Packing Cubes</span>
-              <span className="nav-badge" style={{ background: 'var(--surface-dim)', color: 'var(--text-secondary)' }}>
-                {state.cubes.length}
-              </span>
-            </div>
-
-            <div
-              className={`nav-item ${activeNav === 'Airline Baggage Rules' ? 'active' : ''}`}
-              onClick={() => setActiveNav('Airline Baggage Rules')}
-              role="button"
-              tabIndex={0}
-            >
-              <FileText size={16} />
-              <span>Airline Baggage Rules</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveNav('Luggage & Containers');
+                  setContainersSubTab('bags');
+                }}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '3px 8px',
+                  borderRadius: '5px',
+                  border: 'none',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight:
+                    activeNav === 'Saved Bags' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'bags')
+                      ? 600
+                      : 400,
+                  color:
+                    activeNav === 'Saved Bags' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'bags')
+                      ? 'var(--primary)'
+                      : 'var(--text-secondary)',
+                  background:
+                    activeNav === 'Saved Bags' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'bags')
+                      ? 'rgba(2, 132, 199, 0.12)'
+                      : 'transparent',
+                }}
+              >
+                <span>Saved Bags</span>
+                <span style={{ opacity: 0.75 }}>{state.bags.length}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveNav('Luggage & Containers');
+                  setContainersSubTab('cubes');
+                }}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '3px 8px',
+                  borderRadius: '5px',
+                  border: 'none',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight:
+                    activeNav === 'Packing Cubes' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'cubes')
+                      ? 600
+                      : 400,
+                  color:
+                    activeNav === 'Packing Cubes' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'cubes')
+                      ? 'var(--primary)'
+                      : 'var(--text-secondary)',
+                  background:
+                    activeNav === 'Packing Cubes' ||
+                    (activeNav === 'Luggage & Containers' && containersSubTab === 'cubes')
+                      ? 'rgba(2, 132, 199, 0.12)'
+                      : 'transparent',
+                }}
+              >
+                <span>Packing Cubes</span>
+                <span style={{ opacity: 0.75 }}>{state.cubes.length}</span>
+              </button>
             </div>
 
             <div
@@ -606,6 +650,19 @@ export function App() {
             </div>
 
             <div
+              className={`nav-item ${activeNav === 'Airline Baggage Rules' ? 'active' : ''}`}
+              onClick={() => setActiveNav('Airline Baggage Rules')}
+              role="button"
+              tabIndex={0}
+            >
+              <Plane size={16} />
+              <span>Airline Baggage Rules</span>
+              <span className="nav-badge" style={{ background: 'var(--surface-dim)', color: 'var(--text-secondary)' }}>
+                {AIRLINE_RULES_DATABASE.length}
+              </span>
+            </div>
+
+            <div
               className={`nav-item ${activeNav === 'Trip Documents' ? 'active' : ''}`}
               onClick={() => setActiveNav('Trip Documents')}
               role="button"
@@ -614,7 +671,57 @@ export function App() {
               <FileText size={16} />
               <span>Trip Documents</span>
             </div>
+
+            <div
+              className={`nav-item ${activeNav === 'Settings' ? 'active' : ''}`}
+              onClick={() => setActiveNav('Settings')}
+              role="button"
+              tabIndex={0}
+              style={{ marginTop: '0.5rem' }}
+            >
+              <Settings size={16} />
+              <span>Settings</span>
+            </div>
           </nav>
+
+          {/* Sidebar Footer with Subtle Air-Gap Status */}
+          <div
+            style={{
+              marginTop: 'auto',
+              paddingTop: '0.75rem',
+              borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingLeft: '0.5rem',
+              paddingRight: '0.5rem',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#10b981',
+                cursor: 'pointer',
+              }}
+              onClick={() => setActiveNav('Settings')}
+              title="Air-Gap Core Verified: 100% offline, zero cloud telemetry"
+            >
+              <span
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  background: '#10b981',
+                  boxShadow: '0 0 6px rgba(16, 185, 129, 0.6)',
+                  display: 'inline-block',
+                }}
+              />
+              <span style={{ fontSize: '11px', fontWeight: 600 }}>Air-Gapped Core</span>
+            </div>
+            <span style={{ fontSize: '10px', color: '#64748b' }}>v0.1.0</span>
+          </div>
         </aside>
 
         {/* Dynamic Canvas Area */}
@@ -625,16 +732,20 @@ export function App() {
               cubes={state.cubes}
               items={state.items}
               airlineRule={activeAirlineRule}
+              allAirlineRules={AIRLINE_RULES_DATABASE}
+              onSelectAirlineRule={(rule) => handleUpdateTripRule(rule.id)}
               unitSystem={unitSystem}
               onTogglePacked={handleTogglePacked}
               onToggleExpand={handleToggleExpandBag}
               onAutoPack={handleRunAutoPack}
               onAddItem={handleAddItem}
+              onPrintManifest={handlePrintManifest}
+              onRemoveItem={(id) => handleBatchDelete([id])}
             />
           )}
 
-          {activeNav === 'Saved Bags' && (
-            <SavedBagsView
+          {(activeNav === 'Luggage & Containers' || activeNav === 'Saved Bags' || activeNav === 'Packing Cubes') && (
+            <LuggageContainersView
               bags={state.bags}
               activeBagId={state.activeBagId}
               onSelectActiveBag={handleSelectActiveBag}
@@ -642,18 +753,25 @@ export function App() {
               onUpdateBag={handleUpdateBag}
               onDuplicateBag={handleDuplicateBag}
               onDeleteBag={handleDeleteBag}
-              unitSystem={unitSystem}
-            />
-          )}
-
-          {activeNav === 'Packing Cubes' && (
-            <PackingCubesView
               cubes={state.cubes}
               items={state.items}
               activeBag={activeBag}
               onUpdateCube={handleUpdateCube}
               onAddCube={handleAddCube}
               unitSystem={unitSystem}
+              subTab={
+                activeNav === 'Saved Bags'
+                  ? 'bags'
+                  : activeNav === 'Packing Cubes'
+                  ? 'cubes'
+                  : containersSubTab
+              }
+              onSubTabChange={(tab) => {
+                setContainersSubTab(tab);
+                if (activeNav !== 'Luggage & Containers') {
+                  setActiveNav('Luggage & Containers');
+                }
+              }}
             />
           )}
 
@@ -694,6 +812,24 @@ export function App() {
               onRestoreBackup={handleRestoreBackup}
               initialCsvContent={droppedCsvText}
               onClearInitialCsv={() => setDroppedCsvText(null)}
+              onTogglePacked={handleTogglePacked}
+              onRemoveItem={(id) => handleBatchDelete([id])}
+            />
+          )}
+
+          {activeNav === 'Settings' && (
+            <SettingsView
+              unitSystem={unitSystem}
+              onUnitSystemChange={setUnitSystem}
+              currency={currency}
+              onCurrencyChange={setCurrency}
+              sizerStrictness={sizerStrictness}
+              onSizerStrictnessChange={setSizerStrictness}
+              displayScale={displayScale}
+              onDisplayScaleChange={setDisplayScale}
+              onOpenDiagnostics={() => setIsBenchmarkModalOpen(true)}
+              onExportVault={handleExportVault}
+              onSecureWipe={handleSecureWipe}
             />
           )}
         </main>
@@ -1416,52 +1552,155 @@ export function App() {
         unitSystem={unitSystem}
       />
 
-      {/* Unified Settings & Preferences Modal */}
-      <SettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        unitSystem={unitSystem}
-        onUnitSystemChange={setUnitSystem}
-        currency={currency}
-        onCurrencyChange={setCurrency}
-        sizerStrictness={sizerStrictness}
-        onSizerStrictnessChange={setSizerStrictness}
-        onOpenDiagnostics={() => {
-          setIsSettingsModalOpen(false);
-          setIsBenchmarkModalOpen(true);
-        }}
-        onExportVault={() => {
-          const backupPackage = {
-            version: '1.0.0',
-            exported_at: new Date().toISOString(),
-            luggage: state.bags,
-            inventory: state.items,
-            cubes: state.cubes,
-            tripPlans,
-          };
-          const content = JSON.stringify(backupPackage, null, 2);
-          const blob = new Blob([content], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `packmatrix-vault-${new Date().toISOString().slice(0, 10)}.json`;
-          a.click();
-          URL.revokeObjectURL(url);
-        }}
-        onSecureWipe={async () => {
-          if (confirm('Execute Secure Wipe & Reset? This will overwrite local storage with zeroes.')) {
-            try {
-              setIsPerformingWipe(true);
-              await ipc.executeSecureWipe();
-              setOperationsNotice('Cryptographic zero-fill executed: 1,048,576 bytes zeroized across database files. Reset complete.');
-            } catch (err) {
-              setOperationsNotice(`Secure wipe failed: ${err}`);
-            } finally {
-              setIsPerformingWipe(false);
-            }
-          }
-        }}
-      />
+      {/* Travel Manifest Print & Inspection Modal */}
+      {isPrintManifestModalOpen && (
+        <div
+          className="modal-backdrop"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            backdropFilter: 'blur(6px)',
+            padding: '2rem',
+          }}
+          onClick={() => setIsPrintManifestModalOpen(false)}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '920px',
+              width: '100%',
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '1.25rem 1.75rem',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#f8fafc',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                  Print Travel Manifest
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  Official baggage declaration &amp; customs-ready manifest for {activeBag.name}
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  disabled={isPrintingManifest}
+                  onClick={async () => {
+                    setIsPrintingManifest(true);
+                    try {
+                      await ipc.printTravelManifest();
+                    } finally {
+                      setTimeout(() => setIsPrintingManifest(false), 1200);
+                    }
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: isPrintingManifest ? '#10b981' : 'var(--primary, #0284c7)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: isPrintingManifest ? 'default' : 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <Printer size={14} />
+                  <span>{isPrintingManifest ? 'Sending to Printer...' : 'Send to Printer'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPrintManifestModalOpen(false);
+                    setActiveNav('Trip Documents');
+                  }}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '0.55rem 0.9rem',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                    color: '#334155',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FileText size={14} />
+                  <span>Trip Documents</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrintManifestModalOpen(false)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: '6px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Scrollable Manifest Preview */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, background: '#f1f5f9' }}>
+              <PrintableManifest
+                items={state.items}
+                activeBag={activeBag}
+                unitSystem={unitSystem}
+                onTogglePacked={handleTogglePacked}
+                onRemoveItem={(id) => handleBatchDelete([id])}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offscreen print portal for native travel manifest printing */}
+      <div className="print-manifest-portal" aria-hidden="true">
+        <PrintableManifest
+          items={state.items}
+          activeBag={activeBag}
+          unitSystem={unitSystem}
+        />
+      </div>
     </>
   );
 }

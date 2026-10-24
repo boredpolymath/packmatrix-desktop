@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import type { InventoryItem, LuggageShell, UnitSystem } from '../../types';
 import { validateBackupRestorePackage } from '../../utils/validation';
-import { isTauriEnvironment } from '../../services/ipc';
+import { isTauriEnvironment, ipc } from '../../services/ipc';
+import { PrintableManifest } from '../common/PrintableManifest';
 import {
   Upload,
   Download,
   Printer,
-  ShieldCheck,
   FileSpreadsheet,
   RefreshCw,
 } from 'lucide-react';
@@ -18,8 +18,10 @@ interface Props {
   unitSystem: UnitSystem;
   onImportItems: (newItems: InventoryItem[]) => void;
   onRestoreBackup: (backup: { luggage: LuggageShell[]; inventory: InventoryItem[] }) => void;
-  initialCsvContent?: string | null;
-  onClearInitialCsv?: () => void;
+  initialCsvContent?: string | null | undefined;
+  onClearInitialCsv?: (() => void) | undefined;
+  onTogglePacked?: ((id: string) => void) | undefined;
+  onRemoveItem?: ((id: string) => void) | undefined;
 }
 
 export const TripDocumentsView: React.FC<Props> = ({
@@ -31,6 +33,8 @@ export const TripDocumentsView: React.FC<Props> = ({
   onRestoreBackup,
   initialCsvContent,
   onClearInitialCsv,
+  onTogglePacked,
+  onRemoveItem,
 }) => {
   const [csvContent, setCsvContent] = useState('');
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -117,10 +121,6 @@ export const TripDocumentsView: React.FC<Props> = ({
       });
     }
   }, [initialCsvContent, onClearInitialCsv]);
-
-  // Compute travel manifest totals
-  const totalWeightG = items.reduce((acc, i) => acc + i.weight_g, 0);
-  const totalValue = items.reduce((acc, i) => acc + i.monetary_value, 0);
 
   const handleCommitImport = () => {
     if (csvPreview.length === 0) return;
@@ -226,8 +226,8 @@ export const TripDocumentsView: React.FC<Props> = ({
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    await ipc.printTravelManifest();
   };
 
   return (
@@ -327,106 +327,16 @@ export const TripDocumentsView: React.FC<Props> = ({
       </div>
 
       {/* Printable Travel Manifest Document */}
-      <div
+      <PrintableManifest
         id="printable-manifest"
-        style={{
-          background: '#ffffff',
-          color: '#0f172a',
-          borderRadius: '12px',
-          border: '1px solid var(--border-light)',
-          padding: '2.5rem',
-          boxShadow: 'var(--shadow-card)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.5rem',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #0f172a', paddingBottom: '1rem' }}>
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em' }}>PACKMATRIX OFFICIAL TRAVEL MANIFEST</h1>
-            <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
-              International Customs &amp; Baggage Security Declaration · Air-Gapped Verification Token
-            </p>
-          </div>
-          <div style={{ textAlign: 'right', fontSize: '11.5px', color: '#475569' }}>
-            <div>Date Generated: {manifestDate}</div>
-            <div>Active Bag: <strong>{activeBag.name}</strong></div>
-            <div>Serial Reference: <strong>{manifestSerial}</strong></div>
-          </div>
-        </div>
-
-        {/* Telemetry Summary Strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px' }}>
-          <div>
-            <span style={{ fontSize: '10.5px', color: '#64748b', display: 'block' }}>TOTAL PACKED ITEMS</span>
-            <span style={{ fontSize: '16px', fontWeight: 700 }}>{items.length} units</span>
-          </div>
-          <div>
-            <span style={{ fontSize: '10.5px', color: '#64748b', display: 'block' }}>GROSS GEAR WEIGHT</span>
-            <span style={{ fontSize: '16px', fontWeight: 700 }}>
-              {unitSystem === 'metric' ? `${(totalWeightG / 1000).toFixed(2)} kg` : `${(totalWeightG * 0.00220462).toFixed(2)} lbs`}
-            </span>
-          </div>
-          <div>
-            <span style={{ fontSize: '10.5px', color: '#64748b', display: 'block' }}>TOTAL REPLACEMENT VALUATION</span>
-            <span style={{ fontSize: '16px', fontWeight: 700, color: '#16a34a' }}>${totalValue.toLocaleString()} USD</span>
-          </div>
-          <div>
-            <span style={{ fontSize: '10.5px', color: '#64748b', display: 'block' }}>SECURITY PROFILE</span>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: '#059669', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
-              <ShieldCheck size={14} /> TS/ICAO Cleared
-            </span>
-          </div>
-        </div>
-
-        {/* Items Table */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-          <thead>
-            <tr style={{ borderBottom: '1.5px solid #cbd5e1', textAlign: 'left', color: '#475569' }}>
-              <th style={{ padding: '6px 8px' }}>ITEM &amp; BRAND</th>
-              <th style={{ padding: '6px 8px' }}>CATEGORY</th>
-              <th style={{ padding: '6px 8px' }}>MASS</th>
-              <th style={{ padding: '6px 8px' }}>SERIAL NO.</th>
-              <th style={{ padding: '6px 8px' }}>STATUS</th>
-              <th style={{ padding: '6px 8px', textAlign: 'right' }}>DECL. VALUE</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((i) => (
-              <tr key={i.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                <td style={{ padding: '6px 8px', fontWeight: 600 }}>
-                  {i.name}
-                  {i.brand && <span style={{ color: '#64748b', fontWeight: 400, marginLeft: '6px' }}>({i.brand})</span>}
-                </td>
-                <td style={{ padding: '6px 8px' }}>{i.category}</td>
-                <td style={{ padding: '6px 8px' }}>{i.weight_g} g</td>
-                <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: '11px', color: '#64748b' }}>
-                  {i.serial_number || '—'}
-                </td>
-                <td style={{ padding: '6px 8px' }}>
-                  <span style={{ fontWeight: 600, color: i.readiness_state === 'Packed' ? '#15803d' : '#475569' }}>
-                    {i.readiness_state}
-                  </span>
-                </td>
-                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600 }}>
-                  ${i.monetary_value}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Declaration Footer */}
-        <div style={{ borderTop: '1px solid #cbd5e1', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
-          <p style={{ maxWidth: '480px' }}>
-            I hereby certify that the contents listed above represent an accurate account of travel gear and personal property contained within the referenced luggage shell, containing zero undeclared hazardous materials or forbidden lithium cells.
-          </p>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ height: '30px', borderBottom: '1px solid #94a3b8', width: '160px' }}></div>
-            <div style={{ marginTop: '4px' }}>Passenger Signature</div>
-          </div>
-        </div>
-      </div>
+        items={items}
+        activeBag={activeBag}
+        unitSystem={unitSystem}
+        manifestDate={manifestDate}
+        manifestSerial={manifestSerial}
+        onTogglePacked={onTogglePacked}
+        onRemoveItem={onRemoveItem}
+      />
 
       {/* CSV Import Wizard Modal */}
       {isCsvModalOpen && (

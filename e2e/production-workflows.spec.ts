@@ -50,9 +50,9 @@ test.describe('PackMatrix Desktop — SDLC 7.4 Cross-Platform E2E Production Wor
     await expect(commitBtn).toBeEnabled();
     await commitBtn.click();
 
-    // 5. Verify balance calculation: navigate to My Packing -> Balance
+    // 5. Verify balance calculation: navigate to My Packing -> Expand Balance panel
     await page.getByText('My Packing', { exact: true }).click();
-    await page.getByText('Balance', { exact: true }).click();
+    await page.getByRole('button', { name: /Balance/i }).click();
 
     // Assert 3D Center of Mass Centroid is computed and visible
     await expect(page.getByText('3D Ergonomic Center of Gravity Centroid')).toBeVisible();

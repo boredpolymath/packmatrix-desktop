@@ -106,22 +106,69 @@ export const AllocationSchema = v.object({
 // In-Memory Dev / Browser Fallback Storage
 // ==========================================
 
+const DEFAULT_STARTER_TRIP: TripPlan = {
+  id: 'trip-transatlantic-starter',
+  title: 'Transatlantic Summer · FRA → JFK',
+  origin_airport: 'FRA',
+  destination_airport: 'JFK',
+  departure_date: '2026-06-14',
+  return_date: '2026-06-28',
+  target_airline_rule_id: 'rule-dl-standard',
+  active_luggage_shell_id: 'preset-peak-design-45',
+  notes: 'Primary carry-on one-bag travel loadout',
+};
+
 class FallbackStore {
-  bags: LuggageShell[] = [...CURATED_BAG_PRESETS];
-  cubes: SubContainer[] = [...INITIAL_SUB_CONTAINERS];
-  items: InventoryItem[] = [...INITIAL_INVENTORY_ITEMS];
-  plan: TripPlan = {
-    id: 'trip-transatlantic-starter',
-    title: 'Transatlantic Summer · FRA → JFK',
-    origin_airport: 'FRA',
-    destination_airport: 'JFK',
-    departure_date: '2026-06-14',
-    return_date: '2026-06-28',
-    target_airline_rule_id: 'rule-dl-standard',
-    active_luggage_shell_id: 'preset-peak-design-45',
-    notes: 'Primary carry-on one-bag travel loadout',
-  };
-  allocations: Allocation[] = [];
+  bags: LuggageShell[];
+  cubes: SubContainer[];
+  items: InventoryItem[];
+  plans: TripPlan[];
+  activePlanId: string;
+  allocations: Allocation[];
+
+  constructor() {
+    this.bags = this.loadFromStorage('packmatrix_fallback_bags', [...CURATED_BAG_PRESETS]);
+    this.cubes = this.loadFromStorage('packmatrix_fallback_cubes', [...INITIAL_SUB_CONTAINERS]);
+    this.items = this.loadFromStorage('packmatrix_fallback_items', [...INITIAL_INVENTORY_ITEMS]);
+    this.plans = this.loadFromStorage('packmatrix_fallback_plans', [{ ...DEFAULT_STARTER_TRIP }]);
+    this.activePlanId = this.loadFromStorage('packmatrix_fallback_active_plan_id', DEFAULT_STARTER_TRIP.id);
+    this.allocations = this.loadFromStorage('packmatrix_fallback_allocations', []);
+  }
+
+  private loadFromStorage<T>(key: string, defaultVal: T): T {
+    if (typeof localStorage === 'undefined') return defaultVal;
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : defaultVal;
+    } catch {
+      return defaultVal;
+    }
+  }
+
+  saveToStorage(key: string, val: unknown): void {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(key, JSON.stringify(val));
+    } catch {
+      // ignore
+    }
+  }
+
+  get plan(): TripPlan {
+    return this.plans.find((p) => p.id === this.activePlanId) || this.plans[0] || DEFAULT_STARTER_TRIP;
+  }
+
+  set plan(p: TripPlan) {
+    const idx = this.plans.findIndex((t) => t.id === p.id);
+    if (idx >= 0) {
+      this.plans[idx] = p;
+    } else {
+      this.plans.unshift(p);
+    }
+    this.activePlanId = p.id;
+    this.saveToStorage('packmatrix_fallback_plans', this.plans);
+    this.saveToStorage('packmatrix_fallback_active_plan_id', this.activePlanId);
+  }
 }
 
 const fallback = new FallbackStore();
@@ -344,13 +391,19 @@ export const ipc = {
       const res = await invoke<TripPlan[]>('get_all_trip_plans');
       return v.parse(v.array(TripPlanSchema), res) as TripPlan[];
     }
-    return [{ ...fallback.plan }];
+    return [...fallback.plans];
   },
 
   async deleteTripPlan(id: string): Promise<boolean> {
     if (isTauriEnvironment()) {
       return await invoke<boolean>('delete_trip_plan', { id });
     }
+    fallback.plans = fallback.plans.filter((p) => p.id !== id);
+    if (fallback.activePlanId === id) {
+      fallback.activePlanId = fallback.plans[0]?.id || DEFAULT_STARTER_TRIP.id;
+    }
+    fallback.saveToStorage('packmatrix_fallback_plans', fallback.plans);
+    fallback.saveToStorage('packmatrix_fallback_active_plan_id', fallback.activePlanId);
     return true;
   },
 
@@ -663,6 +716,49 @@ export const ipc = {
     fallback.cubes = [];
     fallback.items = [];
     fallback.allocations = [];
+    fallback.plans = [{ ...DEFAULT_STARTER_TRIP }];
+    fallback.activePlanId = DEFAULT_STARTER_TRIP.id;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('packmatrix_fallback_bags');
+      localStorage.removeItem('packmatrix_fallback_cubes');
+      localStorage.removeItem('packmatrix_fallback_items');
+      localStorage.removeItem('packmatrix_fallback_plans');
+      localStorage.removeItem('packmatrix_fallback_active_plan_id');
+      localStorage.removeItem('packmatrix_fallback_allocations');
+      localStorage.removeItem('packmatrix_active_trip_id');
+    }
     return true;
+  },
+
+  async printTravelManifest(): Promise<boolean> {
+    // 1. In Tauri native desktop environment, invoke native print_travel_manifest command first.
+    // On macOS WKWebView (Tauri), window.print() inside JS is ignored unless triggered
+    // via native WebviewWindow::print() dispatcher.
+    if (isTauriEnvironment()) {
+      try {
+        await invoke('print_travel_manifest');
+        return true;
+      } catch (err) {
+        console.warn('Native print_travel_manifest failed, attempting plugin:webview|print:', err);
+        try {
+          await invoke('plugin:webview|print');
+          return true;
+        } catch (err2) {
+          console.warn('Tauri webview print failed, falling back to window.print():', err2);
+        }
+      }
+    }
+
+    // 2. Standard browser / webview fallback: synchronous window.print()
+    if (typeof window !== 'undefined' && typeof window.print === 'function') {
+      try {
+        window.print();
+        return true;
+      } catch (err) {
+        console.warn('window.print() error:', err);
+      }
+    }
+
+    return false;
   },
 };

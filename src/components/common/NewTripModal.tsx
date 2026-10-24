@@ -25,14 +25,18 @@ export const NewTripModal: React.FC<Props> = ({
   const [destination, setDestination] = useState('HND');
   const [departureDate, setDepartureDate] = useState('2026-11-10');
   const [returnDate, setReturnDate] = useState('2026-11-25');
-  const [selectedBagId, setSelectedBagId] = useState(activeBagId);
+  const [customSelectedBagId, setCustomSelectedBagId] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
 
   if (!isOpen) return null;
 
+  const currentSelectedBagId = customSelectedBagId ?? (activeBagId || bags[0]?.id || '');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
+
+    const chosenBagId = currentSelectedBagId || undefined;
 
     const newTrip: TripPlan = {
       id: `trip-${Date.now()}`,
@@ -41,7 +45,7 @@ export const NewTripModal: React.FC<Props> = ({
       destination_airport: destination.trim().toUpperCase(),
       departure_date: departureDate,
       return_date: returnDate || undefined,
-      active_luggage_shell_id: selectedBagId || undefined,
+      active_luggage_shell_id: chosenBagId,
       notes: notes.trim() || undefined,
     };
 
@@ -49,6 +53,7 @@ export const NewTripModal: React.FC<Props> = ({
     onClose();
     setTitle('');
     setNotes('');
+    setCustomSelectedBagId(null);
   };
 
   return (
@@ -218,8 +223,8 @@ export const NewTripModal: React.FC<Props> = ({
               Select Active Luggage Shell for this Trip
             </label>
             <select
-              value={selectedBagId}
-              onChange={(e) => setSelectedBagId(e.target.value)}
+              value={currentSelectedBagId}
+              onChange={(e) => setCustomSelectedBagId(e.target.value)}
               style={{
                 width: '100%',
                 padding: '0.55rem',

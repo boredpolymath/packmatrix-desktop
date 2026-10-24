@@ -77,6 +77,11 @@ export const GearInventoryView: React.FC<Props> = ({
   const [newBrand, setNewBrand] = useState('');
   const [newCategory, setNewCategory] = useState<ItemCategory>('Tech');
   const [displayWeight, setDisplayWeight] = useState(unitSystem === 'imperial' ? '8.8' : '250');
+
+  const handleOpenNewModal = () => {
+    setDisplayWeight(unitSystem === 'imperial' ? '8.8' : '250');
+    setIsNewModalOpen(true);
+  };
   const [newValue, setNewValue] = useState(99);
   const [newReadiness, setNewReadiness] = useState<ReadinessState>('In Closet');
   const [newTags, setNewTags] = useState('');
@@ -514,7 +519,7 @@ export const GearInventoryView: React.FC<Props> = ({
           </button>
 
           <button
-            onClick={() => setIsNewModalOpen(true)}
+            onClick={handleOpenNewModal}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1014,7 +1019,8 @@ export const GearInventoryView: React.FC<Props> = ({
                   </label>
                   <input
                     type="number"
-                    step={unitSystem === 'metric' ? '1' : '0.1'}
+                    step="any"
+                    min="0.01"
                     value={displayWeight}
                     onChange={(e) => setDisplayWeight(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-medium)', fontSize: '12.5px' }}
